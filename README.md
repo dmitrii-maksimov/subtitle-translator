@@ -42,6 +42,18 @@ pip install -r requirements.txt
 python -m subtitle_translator
 ```
 
+## Installing on macOS
+
+1. Download the latest `SubtitleTranslator-macOS.dmg` from the [Releases](https://github.com/dmitrii-maksimov/subtitle-translator/releases) page.
+2. Open the DMG and drag **SubtitleTranslator** into **Applications**.
+3. On first launch macOS may show _"Apple could not verify…"_ — the app is not notarized. To bypass, run once in Terminal:
+
+```bash
+xattr -cr /Applications/SubtitleTranslator.app
+```
+
+Or: right-click the app in Applications → **Open** → **Open**.
+
 ## Installing ffmpeg
 
 The app needs `ffmpeg` and `ffprobe` available in PATH (or next to the executable).

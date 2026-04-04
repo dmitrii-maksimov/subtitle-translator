@@ -70,8 +70,34 @@ jobs:
           name: windows-exe
           path: dist/SubtitleTranslator.exe
 
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install system dependencies
+        run: sudo apt-get install -y libgl1 libglib2.0-0 libxcb-cursor0
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt pyinstaller
+
+      - name: Build binary
+        run: |
+          pyinstaller --noconfirm --onefile --noconsole \
+            --name SubtitleTranslator \
+            subtitle_translator/__main__.py
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-bin
+          path: dist/SubtitleTranslator
+
   release:
-    needs: [build-macos, build-windows]
+    needs: [build-macos, build-windows, build-linux]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -86,10 +112,16 @@ jobs:
           name: windows-exe
           path: artifacts
 
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux-bin
+          path: artifacts
+
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
           files: |
             artifacts/SubtitleTranslator-macOS.dmg
             artifacts/SubtitleTranslator.exe
+            artifacts/SubtitleTranslator
           generate_release_notes: true
