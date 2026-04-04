@@ -137,4 +137,37 @@ jobs:
             artifacts/SubtitleTranslator-macOS.dmg
             artifacts/SubtitleTranslator-windows.exe
             artifacts/SubtitleTranslator-linux.AppImage
-          generate_release_notes: true
+          body: |
+            ## SubtitleTranslator ${{ github.ref_name }}
+
+            Desktop app for extracting, translating, and re-muxing subtitles in MKV files using any OpenAI-compatible API.
+
+            ## Downloads
+
+            | Platform | File |
+            |----------|------|
+            | macOS | `SubtitleTranslator-macOS.dmg` |
+            | Windows | `SubtitleTranslator-windows.exe` |
+            | Linux | `SubtitleTranslator-linux.AppImage` |
+
+            ## Requirements
+
+            - **macOS**: [ffmpeg](https://formulae.brew.sh/formula/ffmpeg) via `brew install ffmpeg`
+            - **Windows**: ffmpeg downloaded automatically on first launch
+            - **Linux**: `sudo apt install ffmpeg` or equivalent
+            - An OpenAI-compatible API key and endpoint
+
+            ## macOS: first launch
+
+            The app is not notarized. To bypass the Gatekeeper warning, run once in Terminal:
+            ```bash
+            xattr -cr /Applications/SubtitleTranslator.app
+            ```
+            Or: right-click the app → **Open** → **Open**.
+
+            ## Linux: first launch
+
+            ```bash
+            chmod +x SubtitleTranslator-linux.AppImage
+            ./SubtitleTranslator-linux.AppImage
+            ```
