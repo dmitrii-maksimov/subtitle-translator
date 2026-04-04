@@ -60,13 +60,13 @@ jobs:
       - name: Build exe
         run: |
           pyinstaller --noconfirm --onefile --noconsole `
-            --name SubtitleTranslator `
+            --name SubtitleTranslator-windows `
             subtitle_translator\__main__.py
 
       - uses: actions/upload-artifact@v5
         with:
           name: windows-exe
-          path: dist/SubtitleTranslator.exe
+          path: dist/SubtitleTranslator-windows.exe
 
   build-linux:
     runs-on: ubuntu-latest
@@ -78,21 +78,36 @@ jobs:
           python-version: "3.11"
 
       - name: Install system dependencies
-        run: sudo apt-get install -y libgl1 libglib2.0-0 libxcb-cursor0
+        run: sudo apt-get install -y libgl1 libglib2.0-0 libxcb-cursor0 wget
 
       - name: Install dependencies
-        run: pip install -r requirements.txt pyinstaller
+        run: pip install -r requirements.txt pyinstaller pillow
 
-      - name: Build binary
+      - name: Generate PNG icon
         run: |
-          pyinstaller --noconfirm --onefile --noconsole \
+          python3 -c "from make_icon import draw_icon; draw_icon(256).save('icon.png')"
+
+      - name: Build with PyInstaller
+        run: |
+          pyinstaller --noconfirm --onedir --noconsole \
             --name SubtitleTranslator \
             subtitle_translator/__main__.py
 
+      - name: Create AppImage
+        run: |
+          cp -r dist/SubtitleTranslator AppDir
+          printf '#!/bin/bash\nSELF=$(readlink -f "$0")\nHERE="${SELF%%/*}"\nexec "$HERE/SubtitleTranslator" "$@"\n' > AppDir/AppRun
+          chmod +x AppDir/AppRun
+          printf '[Desktop Entry]\nName=SubtitleTranslator\nExec=SubtitleTranslator\nIcon=SubtitleTranslator\nType=Application\nCategories=AudioVideo;Video;\n' > AppDir/SubtitleTranslator.desktop
+          cp icon.png AppDir/SubtitleTranslator.png
+          wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x appimagetool-x86_64.AppImage
+          ARCH=x86_64 APPIMAGE_EXTRACT_AND_RUN=1 ./appimagetool-x86_64.AppImage AppDir dist/SubtitleTranslator-linux.AppImage
+
       - uses: actions/upload-artifact@v5
         with:
-          name: linux-bin
-          path: dist/SubtitleTranslator
+          name: linux-appimage
+          path: dist/SubtitleTranslator-linux.AppImage
 
   release:
     needs: [build-macos, build-windows, build-linux]
@@ -112,7 +127,7 @@ jobs:
 
       - uses: actions/download-artifact@v5
         with:
-          name: linux-bin
+          name: linux-appimage
           path: artifacts
 
       - name: Create release
@@ -120,6 +135,6 @@ jobs:
         with:
           files: |
             artifacts/SubtitleTranslator-macOS.dmg
-            artifacts/SubtitleTranslator.exe
-            artifacts/SubtitleTranslator
+            artifacts/SubtitleTranslator-windows.exe
+            artifacts/SubtitleTranslator-linux.AppImage
           generate_release_notes: true
