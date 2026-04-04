@@ -66,13 +66,19 @@ The resulting `SubtitleTranslator.exe` will be in the `dist/` folder. Place `ffm
 ### macOS
 
 ```bash
-pip install pyinstaller
-pyinstaller --noconfirm --onefile --noconsole \
+pip install pyinstaller pillow
+# Generate the .icns icon (requires macOS iconutil, included with Xcode CLT)
+python make_icon.py
+# Build the app bundle
+pyinstaller --noconfirm --onedir --noconsole \
     --name SubtitleTranslator \
+    --icon subtitle_translator/SubtitleTranslator.icns \
     subtitle_translator/__main__.py
 ```
 
-The app bundle will be in `dist/`. Make sure ffmpeg is installed via Homebrew or placed alongside the binary.
+The app bundle will be in `dist/SubtitleTranslator.app`. Use `--onedir` (not `--onefile`) to avoid a double Dock icon and a spurious second launch on macOS.
+
+Make sure ffmpeg is installed via Homebrew (`brew install ffmpeg`). The app searches `/opt/homebrew/bin` and `/usr/local/bin` automatically, so it works even when launched from Finder.
 
 ## Configuration
 

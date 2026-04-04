@@ -18,7 +18,7 @@ from PySide6.QtGui import QPainter
 
 
 from .models import AppSettings
-from .utils import check_ffmpeg_available, install_ffmpeg, get_base_dir
+from .utils import check_ffmpeg_available, install_ffmpeg, make_startupinfo, find_tool
 
 
 class WorkerThread(QThread):
@@ -221,7 +221,10 @@ class MainWindow(QMainWindow):
 
         # Settings tab UI
         settings_layout_v = QVBoxLayout(settings_tab)
+        settings_layout_v.setContentsMargins(12, 12, 12, 12)
         form = QFormLayout()
+        form.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
+        form.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
         self.lang_input = QLineEdit(self.settings.target_language)
         self.lang_input.setPlaceholderText("Target language, e.g. ru, en, es...")
         self.api_key_input = QLineEdit(self.settings.api_key)
@@ -594,19 +597,12 @@ class MainWindow(QMainWindow):
             self.batch_progress.setValue(0)
 
     def _ffprobe_subs(self, mkv_path: str) -> List[dict]:
-        base_dir = get_base_dir()
-        ffprobe_exe = "ffprobe.exe" if os.name == "nt" else "ffprobe"
-        ffprobe = os.path.join(base_dir, ffprobe_exe)
-        
-        ffprobe_cmd = ffprobe if os.path.exists(ffprobe) else "ffprobe"
         cmd = [
-            ffprobe_cmd, "-v", "error", "-select_streams", "s",
+            find_tool("ffprobe"), "-v", "error", "-select_streams", "s",
             "-show_entries", "stream=index,codec_name,codec_type,disposition,bit_rate:stream_tags=language,title",
             "-of", "json", mkv_path,
         ]
-        startupinfo = subprocess.STARTUPINFO()
-        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-        proc = subprocess.run(cmd, capture_output=True, text=True, startupinfo=startupinfo)
+        proc = subprocess.run(cmd, capture_output=True, text=True, startupinfo=make_startupinfo())
         if proc.returncode != 0:
             raise RuntimeError(proc.stderr.strip() or "ffprobe failed")
         data = json.loads(proc.stdout)
@@ -705,18 +701,10 @@ class MainWindow(QMainWindow):
     def _extract_srt(self, mkv_path: str, stream_index: int) -> str:
         base, _ = os.path.splitext(mkv_path)
         out_srt = base + f".stream{stream_index}.srt"
-        
-        base_dir = get_base_dir()
-        ffmpeg_exe = "ffmpeg.exe" if os.name == "nt" else "ffmpeg"
-        ffmpeg = os.path.join(base_dir, ffmpeg_exe)
-
-        ffmpeg_cmd = ffmpeg if os.path.exists(ffmpeg) else "ffmpeg"
         cmd = [
-            ffmpeg_cmd, "-y", "-i", mkv_path, "-map", f"0:{stream_index}", out_srt
+            find_tool("ffmpeg"), "-y", "-i", mkv_path, "-map", f"0:{stream_index}", out_srt
         ]
-        startupinfo = subprocess.STARTUPINFO()
-        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-        proc = subprocess.run(cmd, capture_output=True, text=True, startupinfo=startupinfo)
+        proc = subprocess.run(cmd, capture_output=True, text=True, startupinfo=make_startupinfo())
         if proc.returncode != 0:
             raise RuntimeError(proc.stderr.strip() or "ffmpeg failed")
         return out_srt
@@ -1195,10 +1183,7 @@ class MainWindow(QMainWindow):
         else:
             out_mkv = os.path.splitext(remux_src)[0] + ".translated.mkv"
             yield "Remuxing new MKV with translated subtitles..."
-        base_dir = get_base_dir()
-        ffmpeg_exe = "ffmpeg.exe" if os.name == "nt" else "ffmpeg"
-        ffmpeg = os.path.join(base_dir, ffmpeg_exe)
-        ffmpeg_cmd = ffmpeg if os.path.exists(ffmpeg) else "ffmpeg"
+        ffmpeg_cmd = find_tool("ffmpeg")
         # Try to reuse source subtitle title for the new translated track
         src_title = None
         try:
@@ -1278,9 +1263,7 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
-        startupinfo = subprocess.STARTUPINFO()
-        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-        proc = subprocess.run(cmd, capture_output=True, text=True, startupinfo=startupinfo)
+        proc = subprocess.run(cmd, capture_output=True, text=True, startupinfo=make_startupinfo())
         if proc.returncode != 0:
             # Log exit code and stderr so the user can copy from the log window
             yield f"FFmpeg exit code: {proc.returncode}"
