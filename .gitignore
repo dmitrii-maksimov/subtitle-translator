@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+*.egg
+
+# Virtual environment
+.venv/
+
+# IDE
+.idea/
+
+# PyInstaller build artifacts
+build/
+dist/
+*.spec
+
+# Archives
+*.zip
+
+# FFmpeg binaries (downloaded at runtime)
+ffmpeg.exe
+ffprobe.exe
