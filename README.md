@@ -6,13 +6,23 @@ Built with Python, PySide6 (Qt 6), and any OpenAI-compatible Chat Completions AP
 
 ## Features
 
-- Load an MKV file and list all embedded subtitle tracks (via ffprobe).
-- Extract a selected subtitle track to SRT.
-- Translate subtitles using a configurable Chat Completions API (OpenAI, local proxy, etc.).
-- Re-mux the translated SRT back into the MKV as a new subtitle track.
-- Batch mode: process multiple MKV files in one go.
-- Parallel translation with configurable workers, window size, and overlap context.
+- Pick an MKV file, several MKV files, or a whole folder — a popup
+  appears per file listing every subtitle track (via ffprobe).
+- For each track, tick **Translate** (one per file) and/or **Delete**.
+  A **Save & Continue** button moves to the next file; **Skip** leaves
+  the file alone; **Cancel** aborts the whole batch.
+- Selections carry over: if the next file has a track with the same
+  `(language, title, codec)`, the checkboxes are pre-filled — one pass
+  of setup for a whole TV-show folder.
+- Translate a chosen track using any OpenAI-compatible Chat Completions
+  API (OpenAI, local proxy, etc.).
+- Re-mux the translated SRT back into the MKV as a new track, and drop
+  any tracks marked for deletion in the same pass.
+- Standalone `.srt` / `.str` files: translated in place without remux.
+- Parallel translation with configurable workers, window size, and
+  overlap context.
 - Progress reporting and cancellable operations.
+- Theme-aware UI (light and dark).
 - Auto-download of ffmpeg on Windows if not found.
 
 ## Requirements
@@ -108,9 +118,18 @@ All settings are stored in `~/.subtitle_translator_settings.json` and can be edi
 
 ## How it works
 
-1. **Extract** — ffprobe detects subtitle tracks; ffmpeg extracts the selected track to a temporary SRT file.
-2. **Translate** — The SRT is split into overlapping windows. Each window is sent to the Chat API in parallel. Overlap ensures consistent translations across chunk boundaries.
-3. **Re-mux** — The translated SRT is muxed back into the MKV as an additional subtitle track using ffmpeg. The original file is never modified; a new `.translated.mkv` is created.
+1. **Select** — open a file, multiple files, or a folder. For every
+   MKV a modal lists its subtitle tracks. Tick one track as the
+   translation source and any number of tracks for deletion.
+2. **Extract** — ffmpeg pulls the chosen track to a temporary SRT file.
+3. **Translate** — The SRT is split into overlapping windows. Each
+   window is sent to the Chat API in parallel. Overlap ensures
+   consistent translations across chunk boundaries.
+4. **Re-mux** — The translated SRT is muxed back into the MKV as a new
+   track; tracks marked for deletion are excluded via explicit
+   `-map` whitelisting. By default the original file is preserved and
+   a new `.translated.mkv` is created (toggle **Overwrite the original
+   file** to replace it in place).
 
 ## Project structure
 
@@ -118,11 +137,23 @@ All settings are stored in `~/.subtitle_translator_settings.json` and can be edi
 subtitle_translator/
     __init__.py          # Package marker
     __main__.py          # Entry point (launches the Qt app)
-    models.py            # AppSettings dataclass and persistence
+    models.py            # AppSettings and FileDecision dataclasses
     services.py          # TranslationService: prompts and API calls
     utils.py             # ffmpeg/ffprobe discovery and installation
-    main_window.py       # GUI (PySide6)
+    main_window.py       # GUI (PySide6), incl. TrackSelectionDialog
+tests/
+    test_track_selection.py  # Unit tests for the carry-over matcher
 ```
+
+## Running tests
+
+```bash
+pip install pytest
+QT_QPA_PLATFORM=offscreen python -m pytest -v
+```
+
+`QT_QPA_PLATFORM=offscreen` lets Qt construct without a display, which
+is required because the tests import the main module.
 
 ## License
 
