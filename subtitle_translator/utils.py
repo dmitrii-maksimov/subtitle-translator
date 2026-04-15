@@ -8,7 +8,7 @@ import subprocess
 
 def get_base_dir():
     """Returns the directory where the executable (or script) is located."""
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         return os.path.dirname(sys.executable)
     return os.path.dirname(os.path.abspath(__file__))
 
@@ -30,12 +30,10 @@ def find_tool(name: str) -> str:
     """
     exe_name = name + (".exe" if os.name == "nt" else "")
 
-    # 1. Local / bundled
     local = os.path.join(get_base_dir(), exe_name)
     if os.path.isfile(local) and os.access(local, os.X_OK):
         return local
 
-    # 2. PATH (augmented on macOS)
     search_path = os.environ.get("PATH", "")
     if sys.platform == "darwin":
         extra = ":".join(p for p in _MACOS_EXTRA_PATHS if p not in search_path)
@@ -48,8 +46,11 @@ def find_tool(name: str) -> str:
 
     raise RuntimeError(
         f"{name} not found.\n"
-        + ("Install via Homebrew:  brew install ffmpeg" if sys.platform == "darwin"
-           else "Install ffmpeg and make sure it is in PATH.")
+        + (
+            "Install via Homebrew:  brew install ffmpeg"
+            if sys.platform == "darwin"
+            else "Install ffmpeg and make sure it is in PATH."
+        )
     )
 
 
@@ -79,6 +80,7 @@ def _suppress_win_errors():
     def _ctx():
         if os.name == "nt":
             import ctypes
+
             old_mode = ctypes.windll.kernel32.SetErrorMode(0x0001 | 0x0002 | 0x8000)
             try:
                 yield
@@ -137,20 +139,19 @@ def install_ffmpeg(progress_callback=None, cancel_event=None):
     zip_path = os.path.join(base_dir, "ffmpeg.zip")
 
     try:
-        # Download
         with requests.get(url, stream=True) as r:
             r.raise_for_status()
-            total_length = r.headers.get('content-length')
+            total_length = r.headers.get("content-length")
 
             if total_length is None:
-                with open(zip_path, 'wb') as f:
+                with open(zip_path, "wb") as f:
                     f.write(r.content)
                 if progress_callback:
                     progress_callback(50)
             else:
                 dl = 0
                 total_length = int(total_length)
-                with open(zip_path, 'wb') as f:
+                with open(zip_path, "wb") as f:
                     for chunk in r.iter_content(chunk_size=8192):
                         if cancel_event and cancel_event.is_set():
                             raise InterruptedError("Download cancelled")
@@ -163,17 +164,22 @@ def install_ffmpeg(progress_callback=None, cancel_event=None):
         if progress_callback:
             progress_callback(60)
 
-        # Extract
-        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+        with zipfile.ZipFile(zip_path, "r") as zip_ref:
             file_list = zip_ref.namelist()
             ffmpeg_src = next((f for f in file_list if f.endswith("ffmpeg.exe")), None)
-            ffprobe_src = next((f for f in file_list if f.endswith("ffprobe.exe")), None)
+            ffprobe_src = next(
+                (f for f in file_list if f.endswith("ffprobe.exe")), None
+            )
 
             if not ffmpeg_src or not ffprobe_src:
-                raise RuntimeError("Could not find ffmpeg.exe or ffprobe.exe in the downloaded archive")
+                raise RuntimeError(
+                    "Could not find ffmpeg.exe or ffprobe.exe in the downloaded archive"
+                )
 
             for src, name in [(ffmpeg_src, "ffmpeg.exe"), (ffprobe_src, "ffprobe.exe")]:
-                with zip_ref.open(src) as zf, open(os.path.join(base_dir, name), 'wb') as df:
+                with zip_ref.open(src) as zf, open(
+                    os.path.join(base_dir, name), "wb"
+                ) as df:
                     shutil.copyfileobj(zf, df)
 
         if progress_callback:

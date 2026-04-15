@@ -23,6 +23,11 @@ Built with Python, PySide6 (Qt 6), and any OpenAI-compatible Chat Completions AP
   overlap context.
 - Progress reporting and cancellable operations.
 - Theme-aware UI (light and dark).
+- Model picker in Settings: dropdown populated from `/v1/models` with
+  input/output price per 1M tokens shown inline (dates back to the last
+  time the pricing table was refreshed locally); a **Refresh** button
+  re-fetches the list, and a **Custom** checkbox lets you type an
+  arbitrary model id for local proxies or unlisted models.
 - Auto-download of ffmpeg on Windows if not found.
 
 ## Requirements
@@ -110,7 +115,7 @@ All settings are stored in `~/.subtitle_translator_settings.json` and can be edi
 |---|---|---|
 | API Key | Your OpenAI-compatible API key | — |
 | API Base URL | API endpoint | `https://api.openai.com/v1` |
-| Model | Chat model name | `gpt-4o-mini` |
+| Model | Chat model id (pick from the combo or tick **Custom** to type) | `gpt-4o-mini` |
 | Target Language | Language to translate into | `ru` |
 | Workers | Parallel translation threads | `5` |
 | Window | Subtitles per translation chunk | `25` |
@@ -138,11 +143,14 @@ subtitle_translator/
     __init__.py          # Package marker
     __main__.py          # Entry point (launches the Qt app)
     models.py            # AppSettings and FileDecision dataclasses
-    services.py          # TranslationService: prompts and API calls
+    services.py          # TranslationService: prompts + /v1/models + /v1/chat/completions
+    pricing.py           # Local snapshot of OpenAI per-token prices
     utils.py             # ffmpeg/ffprobe discovery and installation
-    main_window.py       # GUI (PySide6), incl. TrackSelectionDialog
+    main_window.py       # GUI (PySide6): MainWindow, TrackSelectionDialog,
+                         #                model picker, pricing delegate
 tests/
     test_track_selection.py  # Unit tests for the carry-over matcher
+    test_pricing.py          # Pricing lookup and model-id normalization
 ```
 
 ## Running tests

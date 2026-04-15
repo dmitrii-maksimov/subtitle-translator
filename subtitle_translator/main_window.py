@@ -33,8 +33,12 @@ from PySide6.QtWidgets import (
     QGridLayout,
     QScrollArea,
     QFrame,
+    QStyledItemDelegate,
+    QStyle,
+    QStyleOptionViewItem,
+    QApplication,
 )
-from PySide6.QtGui import QPainter, QPalette
+from PySide6.QtGui import QPainter, QPalette, QColor
 
 
 from .models import AppSettings, FileDecision
@@ -45,7 +49,7 @@ class WorkerThread(QThread):
     progress = Signal(int)
     status = Signal(str)
     batch_info = Signal(int, str)
-    request_input = Signal(str, object)  # type, data
+    request_input = Signal(str, object)
     finished_ok = Signal(str)
     failed = Signal(str)
 
@@ -67,28 +71,123 @@ class WorkerThread(QThread):
                     and len(update) == 3
                     and update[0] == "batch"
                 ):
-                    # ('batch', percent, text)
                     self.batch_info.emit(update[1], update[2])
                 elif (
                     isinstance(update, tuple)
                     and len(update) == 3
                     and update[0] == "input"
                 ):
-                    # ('input', type, data)
                     self.request_input.emit(update[1], update[2])
                 elif (
                     isinstance(update, tuple)
                     and len(update) == 3
                     and update[0] == "settings_update"
                 ):
-                    # ('settings_update', key_value_dict, None) or just pass dict as second arg
-                    # Let's simple pass ('settings_update', lang, title)
                     self.request_input.emit(
                         "update_ui_settings", (update[1], update[2])
                     )
             self.finished_ok.emit("done")
         except Exception as e:
             self.failed.emit(str(e))
+
+
+class _ModelFetcherThread(QThread):
+    """One-shot thread: calls translator.list_models() and emits the result.
+
+    Emits ``done(models: list, error: str)``. On success ``error`` is empty.
+    On failure ``models`` is empty and ``error`` contains the message."""
+
+    done = Signal(list, str)
+
+    def __init__(self, translator):
+        super().__init__()
+        self._translator = translator
+
+    def run(self):
+        try:
+            models = self._translator.list_models()
+            self.done.emit(models, "")
+        except Exception as e:
+            self.done.emit([], str(e))
+
+
+_MODEL_PRICE_ROLE = Qt.UserRole + 1
+
+
+class _ModelPriceDelegate(QStyledItemDelegate):
+    """Render a QComboBox dropdown item as 4 aligned columns:
+    current-marker | model id (elided middle) | input price | output price.
+
+    The closed combo still uses the plain item text; only the open popup
+    is redrawn with columns. Prices come from UserRole+1 (a dict or None).
+
+    The ``combo`` constructor argument lets the delegate highlight the
+    currently-selected row with a small bullet, independent of hover."""
+
+    PADDING = 10
+    MARKER_COL = 18
+    IN_COL = 110
+    OUT_COL = 120
+
+    def __init__(self, combo):
+        super().__init__(combo)
+        self._combo = combo
+
+    def paint(self, painter, option, index):
+        opt = QStyleOptionViewItem(option)
+        self.initStyleOption(opt, index)
+        opt.text = ""  # we draw the text ourselves
+        style = opt.widget.style() if opt.widget else QApplication.style()
+        style.drawControl(QStyle.CE_ItemViewItem, opt, painter, opt.widget)
+
+        price = index.data(_MODEL_PRICE_ROLE)
+        model_id = index.data(Qt.UserRole) or index.data() or ""
+
+        rect = option.rect
+        fm = painter.fontMetrics()
+
+        marker_rect = rect.adjusted(self.PADDING, 0, 0, 0)
+        marker_rect.setWidth(self.MARKER_COL)
+        out_rect = rect.adjusted(0, 0, -self.PADDING, 0)
+        out_rect.setLeft(out_rect.right() - self.OUT_COL)
+        in_rect = rect.adjusted(0, 0, 0, 0)
+        in_rect.setLeft(out_rect.left() - self.IN_COL)
+        in_rect.setRight(out_rect.left() - 2)
+        id_rect = rect.adjusted(self.PADDING + self.MARKER_COL, 0, 0, 0)
+        id_rect.setRight(in_rect.left() - 2)
+
+        selected = bool(option.state & QStyle.State_Selected)
+        is_current = index.row() == self._combo.currentIndex()
+
+        if selected:
+            fg = option.palette.color(QPalette.HighlightedText)
+            muted = fg
+        else:
+            fg = option.palette.color(QPalette.Text)
+            muted = QColor(fg.red(), fg.green(), fg.blue(), 165)
+
+        painter.save()
+
+        if is_current:
+            painter.setPen(fg)
+            painter.drawText(marker_rect, int(Qt.AlignCenter), "\u25cf")
+
+        painter.setPen(fg)
+        id_text = fm.elidedText(str(model_id), Qt.ElideMiddle, id_rect.width())
+        painter.drawText(id_rect, int(Qt.AlignLeft | Qt.AlignVCenter), id_text)
+
+        if price is not None:
+            painter.setPen(muted)
+            in_text = f"${price.get('input', 0):g} in"
+            out_text = f"${price.get('output', 0):g} out /1M"
+            painter.drawText(in_rect, int(Qt.AlignRight | Qt.AlignVCenter), in_text)
+            painter.drawText(out_rect, int(Qt.AlignRight | Qt.AlignVCenter), out_text)
+        painter.restore()
+
+    def sizeHint(self, option, index):
+        s = super().sizeHint(option, index)
+        s.setHeight(max(s.height(), 24))
+        return s
 
 
 class ElidedLabel(QLabel):
@@ -141,7 +240,6 @@ class TrackSelectionDialog(QDialog):
     Result is retrievable via `get_decision()` and `carry_over_prefs()`
     regardless of whether the dialog was accepted, rejected or closed."""
 
-    # Column widths (pixels) shared between header row and data rows
     _COL_TRANSLATE = 100
     _COL_DELETE = 80
     _COL_STREAM = 200
@@ -201,7 +299,6 @@ class TrackSelectionDialog(QDialog):
         root.setContentsMargins(24, 20, 24, 20)
         root.setSpacing(10)
 
-        # Header block: file name + subtitle
         title_lbl = QLabel(os.path.basename(file_path))
         title_lbl.setObjectName("dlg_title")
         title_lbl.setWordWrap(True)
@@ -214,7 +311,6 @@ class TrackSelectionDialog(QDialog):
         root.addWidget(title_lbl)
         root.addWidget(subtitle_lbl)
 
-        # Separator between header and content
         sep1 = QFrame()
         sep1.setObjectName("row_sep")
         sep1.setFrameShape(QFrame.HLine)
@@ -227,7 +323,6 @@ class TrackSelectionDialog(QDialog):
             empty.setStyleSheet("color: palette(mid); padding: 32px;")
             root.addWidget(empty, 1)
         else:
-            # Column headers — data on the left, action checkboxes on the right.
             headers_row = QHBoxLayout()
             headers_row.setContentsMargins(8, 4, 8, 4)
             headers_row.setSpacing(0)
@@ -247,14 +342,12 @@ class TrackSelectionDialog(QDialog):
                     headers_row.addWidget(lbl, 1)
             root.addLayout(headers_row)
 
-            # Thin separator under column headers
             sep2 = QFrame()
             sep2.setObjectName("row_sep")
             sep2.setFrameShape(QFrame.HLine)
             sep2.setFrameShadow(QFrame.Plain)
             root.addWidget(sep2)
 
-            # Scrollable rows list (anchored top, no stretched rows)
             scroll = QScrollArea()
             scroll.setWidgetResizable(True)
             scroll.setFrameShape(QFrame.NoFrame)
@@ -274,7 +367,6 @@ class TrackSelectionDialog(QDialog):
             scroll.setWidget(inner)
             root.addWidget(scroll, 1)
 
-        # Bottom action bar
         btn_row = QHBoxLayout()
         btn_row.setContentsMargins(0, 8, 0, 0)
         btn_row.setSpacing(8)
@@ -329,13 +421,11 @@ class TrackSelectionDialog(QDialog):
         h.setContentsMargins(8, 4, 8, 4)
         h.setSpacing(0)
 
-        # Stream summary (monospace) — leftmost column
         stream_lbl = QLabel(f"#{idx}  {lang}  \u00b7  {codec}")
         stream_lbl.setProperty("class", "stream_cell")
         stream_lbl.setFixedWidth(self._COL_STREAM)
         h.addWidget(stream_lbl)
 
-        # Title / flags — stretch column
         bits = []
         if title:
             bits.append(f"\u201c{title}\u201d")
@@ -346,7 +436,6 @@ class TrackSelectionDialog(QDialog):
         title_lbl.setWordWrap(True)
         h.addWidget(title_lbl, 1)
 
-        # Translate checkbox — right side, centered under its column header
         chk_t = QCheckBox()
         chk_t.setChecked(bool(init.get("translate")))
         chk_t_wrap = QWidget()
@@ -356,7 +445,6 @@ class TrackSelectionDialog(QDialog):
         lw.addWidget(chk_t, 0, Qt.AlignHCenter | Qt.AlignVCenter)
         h.addWidget(chk_t_wrap)
 
-        # Delete checkbox — rightmost
         chk_d = QCheckBox()
         chk_d.setChecked(bool(init.get("delete")))
         chk_d_wrap = QWidget()
@@ -442,7 +530,6 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Subtitle Translator")
         self.settings = AppSettings.load()
         self.translator = TranslationService(self.settings)
-        # Set defaults for new fields if absent/empty
         if getattr(self.settings, "overlap", None) is None:
             self.settings.overlap = 10
         if not getattr(self.settings, "main_prompt_template", None):
@@ -466,12 +553,10 @@ class MainWindow(QMainWindow):
         self.src_srt_path: Optional[str] = None
         self.batch_files: List[str] = []
 
-        # User interaction sync
         self._user_input_event = threading.Event()
         self._user_input_result = None
 
         self._build_ui()
-        # Check ffmpeg availability early
         self.check_and_offer_install_ffmpeg()
 
     def check_and_offer_install_ffmpeg(self):
@@ -556,17 +641,13 @@ class MainWindow(QMainWindow):
             r"^\d{1,2}:\d{2}:\d{2}[,.]\d{3}\s+-->\s+\d{1,2}:\d{2}:\d{2}[,.]\d{3}$"
         )
         idx_re = re.compile(r"^\d{1,5}$")
-        # Work in a non-destructive way regarding internal spaces and line breaks
-        # Normalize temporarily to split, but we won't strip each line
         tmp = text.replace("\r\n", "\n").replace("\r", "\n")
         lines = tmp.split("\n")
         cleaned = []
         for ln in lines:
             if idx_re.match(ln.strip()) or ts_re.match(ln.strip()):
-                # skip spurious control lines
                 continue
             cleaned.append(ln)
-        # Join back with LF; final CRLF will be applied at write stage
         return "\n".join(cleaned)
 
     def _build_ui(self):
@@ -574,20 +655,28 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(root)
         main_layout = QVBoxLayout(root)
 
-        # Tabs: Main and Settings
+        # Tabs: Main and Settings, each wrapped in a QScrollArea so the
+        # window can be resized small/narrow without clipping content.
         self.tabs = QTabWidget()
+
+        main_scroll = QScrollArea()
+        main_scroll.setWidgetResizable(True)
+        main_scroll.setFrameShape(QFrame.NoFrame)
         main_tab = QWidget()
+        main_scroll.setWidget(main_tab)
+
+        settings_scroll = QScrollArea()
+        settings_scroll.setWidgetResizable(True)
+        settings_scroll.setFrameShape(QFrame.NoFrame)
         settings_tab = QWidget()
-        self.tabs.addTab(main_tab, "Main")
-        self.tabs.addTab(settings_tab, "Settings")
+        settings_scroll.setWidget(settings_tab)
+
+        self.tabs.addTab(main_scroll, "Main")
+        self.tabs.addTab(settings_scroll, "Settings")
         main_layout.addWidget(self.tabs)
 
-        # Main tab layout
         layout = QVBoxLayout(main_tab)
 
-        # File controls and list will be on Main tab, settings on Settings tab
-
-        # Settings tab UI
         settings_layout_v = QVBoxLayout(settings_tab)
         settings_layout_v.setContentsMargins(12, 12, 12, 12)
         form = QFormLayout()
@@ -598,15 +687,12 @@ class MainWindow(QMainWindow):
         self.api_key_input = QLineEdit(self.settings.api_key)
         self.api_key_input.setEchoMode(QLineEdit.Password)
         self.api_key_input.setPlaceholderText("OpenAI API Key")
-        self.model_input = QLineEdit(self.settings.model)
-        self.model_input.setPlaceholderText("Model, e.g., gpt-4o-mini")
         self.api_base_input = QLineEdit(self.settings.api_base)
         self.api_base_input.setPlaceholderText("API Base URL (OpenAI-compatible)")
         self.workers_input = QLineEdit(str(self.settings.workers))
         self.workers_input.setPlaceholderText("Workers (1-10)")
         self.window_input = QLineEdit(str(getattr(self.settings, "window", 25)))
         self.window_input.setPlaceholderText("Window (1-200)")
-        # Overlap context size (number of subtitles, symmetric half applied)
         self.overlap_input = QLineEdit(str(getattr(self.settings, "overlap", 10)))
         self.overlap_input.setPlaceholderText("Overlap (0-200)")
         self.fulllog_checkbox = QCheckBox("Full log (requests && responses)")
@@ -618,16 +704,10 @@ class MainWindow(QMainWindow):
             "Optional extra instruction for translation (will be enforced)"
         )
 
-        # Default source settings (for batch mode)
-        self.def_src_lang_input = QLineEdit(self.settings.default_source_lang)
-        self.def_src_lang_input.setPlaceholderText("Default source lang (e.g. eng)")
-        self.def_src_title_input = QLineEdit(self.settings.default_source_title)
-        self.def_src_title_input.setPlaceholderText(
-            "Default source title substring (e.g. Full)"
-        )
-
-        # Main Prompt Template (multiline)
         self.main_prompt_text = QTextEdit()
+        # Allow the widget to shrink — default size hint otherwise keeps
+        # the window from being resized below ~700 px tall.
+        self.main_prompt_text.setMinimumHeight(60)
         self.main_prompt_text.setPlainText(self.settings.main_prompt_template)
         btn_reset_main_prompt = QPushButton("Reset main prompt to default")
 
@@ -647,8 +727,8 @@ class MainWindow(QMainWindow):
 
         btn_reset_main_prompt.clicked.connect(reset_main_prompt)
 
-        # System role
         self.system_role_text = QTextEdit()
+        self.system_role_text.setMinimumHeight(40)
         self.system_role_text.setPlainText(self.settings.system_role)
         btn_reset_system = QPushButton("Reset system role to default")
 
@@ -662,15 +742,13 @@ class MainWindow(QMainWindow):
 
         form.addRow("Target language:", self.lang_input)
         form.addRow("API Key:", self.api_key_input)
-        form.addRow("Model:", self.model_input)
+        form.addRow("Model:", self._build_model_picker())
         form.addRow("API Base:", self.api_base_input)
         form.addRow("Workers:", self.workers_input)
         form.addRow("Window:", self.window_input)
         form.addRow("Overlap:", self.overlap_input)
         form.addRow("Full log:", self.fulllog_checkbox)
         form.addRow("Extra prompt:", self.extra_prompt_input)
-        form.addRow("Default Src Lang:", self.def_src_lang_input)
-        form.addRow("Default Src Title:", self.def_src_title_input)
         settings_layout_v.addLayout(form)
         settings_layout_v.addWidget(
             QLabel(
@@ -684,7 +762,6 @@ class MainWindow(QMainWindow):
         settings_layout_v.addWidget(self.system_role_text)
         settings_layout_v.addWidget(btn_reset_system)
 
-        # File controls
         file_layout = QHBoxLayout()
         self.file_label = ElidedLabel("No file selected")
         btn_browse = QPushButton("Open File (MKV or SRT)...")
@@ -696,16 +773,11 @@ class MainWindow(QMainWindow):
         file_layout.addWidget(btn_browse_folder)
         layout.addLayout(file_layout)
 
-        # Actions
         actions_layout = QHBoxLayout()
-        # Translate button is only used for standalone .srt/.str files.
-        # For MKV files the TrackSelectionDialog auto-starts processing,
-        # so the button stays hidden until an SRT is picked.
         self.btn_translate = QPushButton("Translate SRT")
         self.btn_translate.clicked.connect(self.on_translate)
         self.btn_translate.setEnabled(False)
         self.btn_translate.setVisible(False)
-        # Overwrite checkbox
         self.overwrite_checkbox = QCheckBox("Overwrite the original file")
         self.overwrite_checkbox.setChecked(
             bool(getattr(self.settings, "overwrite_original", False))
@@ -720,14 +792,12 @@ class MainWindow(QMainWindow):
         actions_layout.addWidget(self.btn_cancel)
         layout.addLayout(actions_layout)
 
-        # Progress and log
         self.batch_info_label = QLabel("Batch Progress:")
         self.batch_info_label.setVisible(False)
         self.batch_progress = QProgressBar()
         self.batch_progress.setVisible(False)
         self.progress = QProgressBar()
 
-        # Style progress bars: thicker, centered text
         style = """
             QProgressBar {
                 border: 2px solid grey;
@@ -745,34 +815,32 @@ class MainWindow(QMainWindow):
 
         self.log = QTextEdit()
         self.log.setReadOnly(True)
+        self.log.setMinimumHeight(60)
         layout.addWidget(self.batch_info_label)
         layout.addWidget(self.batch_progress)
         layout.addWidget(self.progress)
         layout.addWidget(self.log)
 
-        # Connect inputs to save settings on change
         for w in [
             self.lang_input,
             self.api_key_input,
-            self.model_input,
             self.api_base_input,
             self.workers_input,
             self.window_input,
             self.overlap_input,
             self.extra_prompt_input,
-            self.def_src_lang_input,
-            self.def_src_title_input,
         ]:
             w.textChanged.connect(self._on_settings_changed)
         self.main_prompt_text.textChanged.connect(self._on_settings_changed)
         self.system_role_text.textChanged.connect(self._on_settings_changed)
         self.fulllog_checkbox.toggled.connect(self._on_settings_changed)
-        # already connected: self.overwrite_checkbox.toggled
 
         self.resize(1100, 700)
+        # Allow the user to shrink the window small — Qt's implicit minimum
+        # size comes from the sum of child sizeHints, which was ~700 px tall.
+        self.setMinimumSize(500, 300)
 
     def closeEvent(self, event):
-        # Ensure we kill any running workers/processes on exit
         if hasattr(self, "worker") and self.worker.isRunning():
             self._cancel_flag.set()
             self.worker.wait(1000)  # wait a bit
@@ -793,7 +861,6 @@ class MainWindow(QMainWindow):
             pass
 
     def _on_worker_done(self, success: bool, err: Optional[str] = None):
-        # Reset UI buttons regardless of outcome
         self.btn_cancel.setEnabled(False)
         self.btn_translate.setEnabled(True)
         if not success:
@@ -808,15 +875,12 @@ class MainWindow(QMainWindow):
     def _on_settings_changed(self):
         self.settings.target_language = self.lang_input.text().strip()
         self.settings.api_key = self.api_key_input.text().strip()
-        self.settings.model = self.model_input.text().strip()
+        self._sync_effective_model()
         self.settings.api_base = self.api_base_input.text().strip()
-        # Optional prompts
         try:
             self.settings.extra_prompt = self.extra_prompt_input.text()
         except Exception:
             pass
-        self.settings.default_source_lang = self.def_src_lang_input.text().strip()
-        self.settings.default_source_title = self.def_src_title_input.text().strip()
         try:
             self.settings.main_prompt_template = self.main_prompt_text.toPlainText()
         except Exception:
@@ -825,7 +889,6 @@ class MainWindow(QMainWindow):
             self.settings.system_role = self.system_role_text.toPlainText()
         except Exception:
             pass
-        # validate workers
         try:
             workers_val = int(self.workers_input.text().strip())
         except Exception:
@@ -835,7 +898,6 @@ class MainWindow(QMainWindow):
         self.workers_input.blockSignals(True)
         self.workers_input.setText(str(workers_val))
         self.workers_input.blockSignals(False)
-        # validate window size
         try:
             window_val = int(self.window_input.text().strip())
         except Exception:
@@ -845,7 +907,6 @@ class MainWindow(QMainWindow):
         self.window_input.blockSignals(True)
         self.window_input.setText(str(window_val))
         self.window_input.blockSignals(False)
-        # validate overlap size
         try:
             overlap_val = int(self.overlap_input.text().strip())
         except Exception:
@@ -855,17 +916,184 @@ class MainWindow(QMainWindow):
         self.overlap_input.blockSignals(True)
         self.overlap_input.setText(str(overlap_val))
         self.overlap_input.blockSignals(False)
-        # fulllog
         try:
             self.settings.fulllog = bool(self.fulllog_checkbox.isChecked())
         except Exception:
             self.settings.fulllog = False
-        # overwrite_original
         try:
             self.settings.overwrite_original = bool(self.overwrite_checkbox.isChecked())
         except Exception:
             self.settings.overwrite_original = False
         self.settings.save()
+
+    def _build_model_picker(self):
+        """Composite widget: combo + Refresh + Custom checkbox + custom input.
+
+        The combo lists models fetched from the API (cached in settings),
+        annotated with pricing if known. Refresh hits /v1/models. Custom
+        toggle swaps the combo for a manual QLineEdit so users can type an
+        arbitrary id (e.g. for a local proxy)."""
+        wrap = QWidget()
+        row = QHBoxLayout(wrap)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(8)
+
+        self.model_combo = QComboBox()
+        self.model_combo.setSizeAdjustPolicy(
+            QComboBox.AdjustToMinimumContentsLengthWithIcon
+        )
+        self.model_combo.setItemDelegate(_ModelPriceDelegate(self.model_combo))
+
+        self.model_custom_input = QLineEdit(self.settings.model)
+        self.model_custom_input.setPlaceholderText(
+            "Enter custom model id, e.g. gpt-4o-mini"
+        )
+
+        self.btn_refresh_models = QPushButton("Refresh")
+        self.btn_refresh_models.setToolTip(
+            "Fetch the list of available models from the API endpoint."
+        )
+        # Compact the Refresh button so the Model row matches the height of
+        # the other single-line form rows (API Key, API Base, …). We keep
+        # the native push-button look but cap padding so it doesn't hang
+        # below the combo.
+        self.btn_refresh_models.setStyleSheet("QPushButton { padding: 1px 12px; }")
+        self.btn_refresh_models.setFixedHeight(self.model_combo.sizeHint().height())
+
+        self.model_custom_checkbox = QCheckBox("Custom")
+        self.model_custom_checkbox.setToolTip(
+            "Type a model id manually (useful for local proxies or unlisted models)."
+        )
+        self.model_custom_checkbox.setChecked(
+            bool(getattr(self.settings, "use_custom_model", False))
+        )
+
+        # Combo and manual-input share the same slot — only one is visible at
+        # a time, so the row never grows taller and Refresh/Custom don't move.
+        row.addWidget(self.model_combo, 1)
+        row.addWidget(self.model_custom_input, 1)
+        row.addWidget(self.btn_refresh_models)
+        row.addWidget(self.model_custom_checkbox)
+
+        from .pricing import MODEL_PRICING
+
+        initial_models = list(self.settings.cached_models or []) or sorted(
+            MODEL_PRICING.keys()
+        )
+        self._populate_model_combo(initial_models, self.settings.model)
+        self._apply_custom_model_mode(
+            bool(getattr(self.settings, "use_custom_model", False))
+        )
+
+        self.model_combo.currentIndexChanged.connect(self._on_model_combo_changed)
+        self.btn_refresh_models.clicked.connect(self._on_refresh_models)
+        self.model_custom_checkbox.toggled.connect(self._on_model_custom_toggled)
+        self.model_custom_input.textChanged.connect(self._on_settings_changed)
+        return wrap
+
+    def _populate_model_combo(self, models, selected):
+        self.model_combo.blockSignals(True)
+        self.model_combo.clear()
+        seen = set()
+        if selected and selected not in models:
+            self._add_combo_item(selected, is_current_marker=True)
+            seen.add(selected)
+        for m in models:
+            if m in seen:
+                continue
+            seen.add(m)
+            self._add_combo_item(m)
+        if selected:
+            for i in range(self.model_combo.count()):
+                if self.model_combo.itemData(i) == selected:
+                    self.model_combo.setCurrentIndex(i)
+                    break
+        self.model_combo.blockSignals(False)
+
+    def _add_combo_item(self, model_id, is_current_marker=False):
+        """Add one combo item with pricing metadata for the delegate.
+
+        Item text is the compact fallback used by the closed combo display
+        (and accessibility). ``Qt.UserRole`` stores the raw id. UserRole+1
+        stores the full pricing dict for ``_ModelPriceDelegate``."""
+        from .pricing import get_pricing, format_pricing
+
+        price_dict = get_pricing(model_id)
+        short = format_pricing(model_id)
+        if is_current_marker:
+            label = f"{model_id}  (current)"
+        elif short:
+            label = f"{model_id}   \u00b7   {short}"
+        else:
+            label = model_id
+        self.model_combo.addItem(label, model_id)
+        last = self.model_combo.count() - 1
+        self.model_combo.setItemData(last, price_dict, _MODEL_PRICE_ROLE)
+
+    def _apply_custom_model_mode(self, on: bool):
+        """Swap combo <-> manual input in the same slot of the single row.
+
+        Refresh is hidden together with the combo (it drives the combo's
+        list and is meaningless while in Custom mode)."""
+        self.model_combo.setVisible(not on)
+        self.btn_refresh_models.setVisible(not on)
+        self.model_custom_input.setVisible(on)
+        self.model_custom_input.setEnabled(on)
+
+    def _sync_effective_model(self):
+        """Push the currently active source (combo or manual) into settings."""
+        if getattr(self.settings, "use_custom_model", False):
+            val = self.model_custom_input.text().strip()
+        else:
+            data = self.model_combo.currentData()
+            val = (data or self.settings.model or "").strip()
+        if val:
+            self.settings.model = val
+
+    def _on_model_combo_changed(self, _idx):
+        if getattr(self.settings, "use_custom_model", False):
+            return
+        self._sync_effective_model()
+        self.settings.save()
+
+    def _on_model_custom_toggled(self, checked: bool):
+        self.settings.use_custom_model = bool(checked)
+        self._apply_custom_model_mode(bool(checked))
+        # Seed the manual input with the current combo selection on first switch
+        if checked and not self.model_custom_input.text().strip():
+            self.model_custom_input.setText(self.settings.model or "")
+        self._sync_effective_model()
+        self.settings.save()
+
+    def _on_refresh_models(self):
+        if not self.settings.api_key:
+            QMessageBox.warning(
+                self,
+                "API key required",
+                "Set your API key in this tab before refreshing the model list.",
+            )
+            return
+        self.btn_refresh_models.setEnabled(False)
+        self.btn_refresh_models.setText("Fetching\u2026")
+        self._models_thread = _ModelFetcherThread(self.translator)
+        self._models_thread.done.connect(self._on_models_fetched)
+        self._models_thread.start()
+
+    def _on_models_fetched(self, models, error):
+        self.btn_refresh_models.setEnabled(True)
+        self.btn_refresh_models.setText("Refresh")
+        if error:
+            QMessageBox.critical(self, "Refresh models", error)
+            return
+        from .pricing import is_text_completion_model
+
+        filtered = sorted({m for m in models if is_text_completion_model(m)})
+        self.settings.cached_models = filtered
+        self.settings.save()
+        self._populate_model_combo(filtered, self.settings.model)
+        self.log_msg(
+            f"Fetched {len(models)} models from API ({len(filtered)} text-capable kept)."
+        )
 
     def on_browse(self):
         start_dir = self.settings.last_dir or ""
@@ -878,7 +1106,6 @@ class MainWindow(QMainWindow):
         if not files:
             return
 
-        # Save directory of the first file
         try:
             self.settings.last_dir = os.path.dirname(files[0])
             self.settings.save()
@@ -886,7 +1113,6 @@ class MainWindow(QMainWindow):
             pass
 
         if len(files) == 1:
-            # Single file mode
             path = files[0]
             self.mkv_path = path
             self.batch_files = []
@@ -894,11 +1120,9 @@ class MainWindow(QMainWindow):
             self.batch_info_label.setVisible(False)
             self.batch_progress.setVisible(False)
 
-            # Detect file type
             ext = os.path.splitext(path)[1].lower()
 
             if ext in (".srt", ".str"):
-                # SRT/STR mode: we will translate a standalone subtitle and save next to it
                 self.input_is_srt = True
                 self.src_srt_path = path
                 self.subtitle_streams = []
@@ -918,10 +1142,8 @@ class MainWindow(QMainWindow):
             except Exception as e:
                 QMessageBox.critical(self, "ffprobe error", str(e))
                 return
-            # Per-file track selection popup (single-file MKV → it's also "last")
             self._run_track_selection_loop([path])
         else:
-            # Batch mode (multiple files)
             self.batch_files = files
             self.mkv_path = None  # Clear single file selection
             self.input_is_srt = False
@@ -939,7 +1161,6 @@ class MainWindow(QMainWindow):
             self.batch_progress.setVisible(True)
             self.batch_progress.setValue(0)
 
-            # Per-file track selection popup loop (multi-file)
             self._run_track_selection_loop(files)
 
     def _ffprobe_subs(self, mkv_path: str) -> List[dict]:
@@ -975,7 +1196,6 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
-        # Scan for MKV files
         mkv_files = []
         for root, dirs, files in os.walk(folder):
             for f in files:
@@ -1005,7 +1225,6 @@ class MainWindow(QMainWindow):
         self.batch_progress.setVisible(True)
         self.batch_progress.setValue(0)
 
-        # Per-file track selection popup loop (folder)
         self._run_track_selection_loop(mkv_files)
 
     def _find_best_stream(self, mkv_path: str) -> Optional[int]:
@@ -1025,15 +1244,12 @@ class MainWindow(QMainWindow):
             lang = (st.get("tags", {}).get("language") or "").lower()
             title = (st.get("tags", {}).get("title") or "").lower()
 
-            # Check lang match
             if target_lang and target_lang not in lang:
                 continue
 
-            # Check title match if specified
             if target_title and target_title not in title:
                 continue
 
-            # If we are here, it matches both criteria
             return idx
 
         return None
@@ -1071,10 +1287,8 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Error", "Subtitle file not found")
             return
 
-        # Check for free disk space before starting (expensive translation)
         try:
             mkv_size = os.path.getsize(self.mkv_path)
-            # Estimate needed space: file size + 100MB buffer for subs/overhead
             needed_bytes = mkv_size + (100 * 1024 * 1024)
 
             output_dir = os.path.dirname(os.path.abspath(self.mkv_path))
@@ -1099,7 +1313,6 @@ class MainWindow(QMainWindow):
                 if reply == QMessageBox.No:
                     return
         except Exception as e:
-            # If check fails (e.g. permission), just log/warn but don't block
             self.log_msg(f"Warning: Could not check disk space: {e}")
 
         self._cancel_flag = threading.Event()
@@ -1123,11 +1336,9 @@ class MainWindow(QMainWindow):
 
     def _on_worker_request_input(self, req_type, data):
         if req_type == "select_stream":
-            # data is (filename, streams_list)
             fname, streams = data
             self._user_input_result = None
 
-            # Show dialog
             dlg = QDialog(self)
             dlg.setWindowTitle(f"Select stream for {fname}")
             dlg.setModal(True)
@@ -1172,7 +1383,6 @@ class MainWindow(QMainWindow):
                 idx = st.get("index")
                 update_defaults = chk_default.isChecked()
 
-                # If update defaults requested, we need to extract lang/title
                 lang = st.get("tags", {}).get("language", "eng")
                 title = st.get("tags", {}).get("title", "")
 
@@ -1190,14 +1400,13 @@ class MainWindow(QMainWindow):
             self._user_input_event.set()
 
         elif req_type == "update_ui_settings":
-            # data is (lang, title)
-            lang, title = data
-            self.def_src_lang_input.setText(lang)
-            self.def_src_title_input.setText(title)
+            # Legacy path (the Default Src Lang/Title inputs were removed
+            # when the per-file popup took over batch selection). The
+            # settings fields are still updated in the worker; we just
+            # don't need to echo them to UI widgets anymore.
+            pass
 
     def _batch_translate_and_remux(self, target_lang: str, file_decisions=None):
-        # New flow: iterate over per-file decisions collected by the popup loop.
-        # Legacy flow (no decisions): fall back to self.batch_files + _find_best_stream.
         if file_decisions:
             file_list = list(file_decisions.keys())
         else:
@@ -1212,13 +1421,11 @@ class MainWindow(QMainWindow):
                 break
 
             fname = os.path.basename(fpath)
-            # Update batch progress
             pct = int(((i - 1) / total_files) * 100)
             yield ("batch", pct, f"Processing file {i} of {total_files}: {fname}")
 
             yield f"[{i}/{total_files}] Processing {fname}..."
 
-            # New flow: use decisions
             decision = (file_decisions or {}).get(fpath)
             if decision is not None:
                 if decision.skipped:
@@ -1227,14 +1434,12 @@ class MainWindow(QMainWindow):
                     continue
                 idx = decision.translate_stream_index
                 delete_indexes = list(decision.delete_stream_indexes or [])
-                # Always probe streams here so delete-mapping has accurate stream list
                 try:
                     streams = self._ffprobe_subs(fpath)
                 except Exception:
                     streams = []
                 self.subtitle_streams = streams
 
-                # Delete-only path: no translation requested, just drop tracks
                 if idx is None:
                     if not delete_indexes:
                         yield f"Skip {fname}: nothing to translate or delete."
@@ -1248,7 +1453,6 @@ class MainWindow(QMainWindow):
                         yield f"Error processing {fname}: {e}"
                     continue
 
-                # Translate path with optional delete
                 try:
                     yield f"Extracting stream #{idx} from {fname}..."
                     src_srt = self._extract_srt(fpath, idx)
@@ -1275,12 +1479,10 @@ class MainWindow(QMainWindow):
                         pass
                 continue
 
-            # Legacy fallback: auto-pick best stream / interactive selection
             idx = self._find_best_stream(fpath)
 
             streams = []
             if idx is None:
-                # Ask user via signal
                 try:
                     streams = self._ffprobe_subs(fpath)
                 except Exception:
@@ -1294,7 +1496,6 @@ class MainWindow(QMainWindow):
                 self._user_input_result = None
                 yield ("input", "select_stream", (fname, streams))
 
-                # Wait for main thread to set the event
                 self._user_input_event.wait()
 
                 if self._user_input_result is None:
@@ -1304,32 +1505,19 @@ class MainWindow(QMainWindow):
                 idx, update_defaults, new_lang, new_title = self._user_input_result
 
                 if update_defaults:
-                    # Update settings via main thread context?
-                    # Actually settings are thread-safe(ish) but better to signal updates or Just do it here?
-                    # Since we are in worker, accessing self.settings directly might be racy if user uses UI same time.
-                    # But here the user is blocked by modal dialog anyway.
-                    # We can update settings object, main thread UI might need refresh.
-                    pass
-                    # We will update them - but the UI textboxes won't auto-update unless we signal back.
-                    # Let's just update the logical settings for now.
                     self.settings.default_source_lang = new_lang
                     self.settings.default_source_title = new_title
                     try:
                         self.settings.save()
                     except Exception:
                         pass
-                    # Yield special tuple to update UI
                     yield ("settings_update", new_lang, new_title)
                     yield f"Updated default settings to Lang={new_lang}, Title={new_title}"
 
             if idx is None:
-                # Should not happen if logic is correct
                 yield f"Skip {fname}: No stream selected."
                 continue
 
-            # IMPORTANT: Update self.subtitle_streams for _translate_and_remux logic to work correct
-            # especially for calculating existing_subs_count and reusing titles.
-            # We might already have streams from interactive selection or probe.
             if not streams:
                 try:
                     streams = self._ffprobe_subs(fpath)
@@ -1337,7 +1525,6 @@ class MainWindow(QMainWindow):
                     streams = []
             self.subtitle_streams = streams
 
-            # Extract
             try:
                 yield f"Extracting stream #{idx} from {fname}..."
                 src_srt = self._extract_srt(fpath, idx)
@@ -1345,21 +1532,14 @@ class MainWindow(QMainWindow):
                 yield f"Error extracting {fname}: {e}"
                 continue
 
-            # Translate & Remux
-            # Reuse _translate_and_remux logic via 'yield from'
-            # Note: _translate_and_remux expects to be a generator
             try:
-                # We need to wrap it to catch exceptions from it too if any
                 for progress_item in self._translate_and_remux(
                     src_srt, target_lang, mkv_path=fpath, source_stream_index=idx
                 ):
-                    # Pass through strings (status updates) but maybe scale or ignore integer progress for batch
-                    # Or just yield them to show activity
                     yield progress_item
             except Exception as e:
                 yield f"Error processing {fname}: {e}"
 
-            # Clean up temp SRT
             if os.path.exists(src_srt) and not getattr(
                 self.settings, "debug_keep_srt", False
             ):
@@ -1414,7 +1594,6 @@ class MainWindow(QMainWindow):
     def _start_batch_from_decisions(self):
         """Launch the worker on collected per-file decisions."""
         target_lang = self.settings.target_language or "ru"
-        # Honor existing UI conventions used by on_translate
         self._cancel_flag = threading.Event()
         self._user_input_event = threading.Event()
         self.btn_translate.setEnabled(False)
@@ -1514,7 +1693,6 @@ class MainWindow(QMainWindow):
         delete_indexes=None,
         source_stream_index=None,
     ):
-        # Generator yielding progress updates and messages
         if hasattr(self, "_cancel_flag") and self._cancel_flag.is_set():
             yield "Cancelled."
             return
@@ -1530,11 +1708,9 @@ class MainWindow(QMainWindow):
         # Implement symmetric half-overlap context. For overlap=10, half=5.
         # We translate extended ranges but only keep the core (non-overlap) part from each batch.
         n = len(entries)
-        # Step equals the core window; overlap is used only as symmetric context
         step = max(1, window)
         core_ranges = [(s, min(s + window, n)) for s in range(0, n, step)]
         half = overlap // 2
-        # Build translation ranges expanded by half on both sides
         groups = []  # list of (core_start, core_end, trans_start, trans_end)
         for core_start, core_end in core_ranges:
             trans_start = max(0, core_start - half)
@@ -1651,9 +1827,7 @@ class MainWindow(QMainWindow):
                 try:
                     res = fut.result()
                     results[i] = res
-                    # If fulllog enabled and debug present, emit logs
                     if getattr(self.settings, "fulllog", False):
-                        # Result tuple layout: (task_id, core_start, core_end, trans_start, trans_end, kind, payload, dbg)
                         dbg = (
                             res[-1]
                             if isinstance(res, (list, tuple)) and len(res) >= 8
@@ -1686,23 +1860,18 @@ class MainWindow(QMainWindow):
                 except Exception as err:
                     raise RuntimeError(f"Group {i} failed: {err}")
 
-        # Assemble results in order with overlap rules
         if hasattr(self, "_cancel_flag") and self._cancel_flag.is_set():
             yield "Cancelled before assembling results."
             return
         for gi, (core_start, core_end, trans_start, trans_end) in enumerate(groups, 1):
-            # Unpack result tuple which may include debug info at the end
             res_tuple = results[gi]
-            # result: (task_id, core_start, core_end, trans_start, trans_end, kind, payload, [dbg])
             _, r_core_s, r_core_e, r_trans_s, r_trans_e, kind, payload = res_tuple[:7]
             group_local = entries[r_trans_s:r_trans_e]
-            # Keep only core range inside this translated batch
             core_rel_start = max(0, r_core_s - r_trans_s)
             core_rel_end = max(
                 core_rel_start, min(len(group_local), r_core_e - r_trans_s)
             )
             if kind == "ok":
-                # Align by order; slice only core indices
                 if len(payload) != len(group_local):
                     yield f"[Warning] Model returned {len(payload)} segments, expected {len(group_local)} for translated window indices {group_local[0].index}-{group_local[-1].index}."
                 for idx_in_group in range(core_rel_start, core_rel_end):
@@ -1727,26 +1896,18 @@ class MainWindow(QMainWindow):
                         index=orig.index, start=orig.start, end=orig.end, content=clean
                     )
 
-        # Rebuild SRT with original timing
         if hasattr(self, "_cancel_flag") and self._cancel_flag.is_set():
             yield "Cancelled before writing SRT."
             return
         yield "Building translated SRT..."
-        # Validate coverage: ensure every original entry has a translation
         if len(translated_entries) != len(entries):
             missing = [e.index for e in entries if e.index not in translated_entries]
             raise RuntimeError(
                 f"Missing translated entries for indices: {missing[:10]}{'...' if len(missing)>10 else ''}"
             )
-        # Convert dict to list sorted by original index
         ordered = [translated_entries[idx] for idx in sorted(translated_entries.keys())]
-        # Ensure order and reindex to strict sequential indices starting from 1
-        # srt.sort_and_reindex returns a generator in some versions; ensure we keep a list
         ordered = list(srt.sort_and_reindex(ordered, start_index=1))
-        # Compose with strict defaults
         translated_srt_text = srt.compose(ordered)
-        # Compose already creates correct SRT structure (index, timestamps, text, blank line between cues).
-        # Validate round-trip parse and entry count
         try:
             parsed_back = list(srt.parse(translated_srt_text))
             if len(parsed_back) != len(ordered):
@@ -1755,7 +1916,6 @@ class MainWindow(QMainWindow):
                 )
         except Exception as e:
             raise RuntimeError(f"Generated SRT is invalid: {e}")
-        # Enforce CRLF endings and final newline for better player compatibility; keep UTF-8 without BOM
         translated_srt_text = translated_srt_text.replace("\r\n", "\n").replace(
             "\r", "\n"
         )
@@ -1763,9 +1923,7 @@ class MainWindow(QMainWindow):
             translated_srt_text += "\n"
         translated_srt_text = translated_srt_text.replace("\n", "\r\n")
         base, _ = os.path.splitext(src_srt)
-        # Default output name
         out_srt = base + f".{target_lang}.translated.srt"
-        # If this is a standalone SRT/STR translation, append model and window to the filename
         if getattr(self, "input_is_srt", False):
             model = (getattr(self.settings, "model", "") or "").strip()
             window_sz = int(getattr(self.settings, "window", 25) or 25)
@@ -1781,7 +1939,6 @@ class MainWindow(QMainWindow):
         with open(out_srt, "w", encoding="utf-8", newline="") as f:
             f.write(translated_srt_text)
 
-        # If we are translating a standalone SRT/STR file, skip remux and just finish here
         if getattr(self, "input_is_srt", False) or (
             self.mkv_path
             and os.path.splitext(self.mkv_path)[1].lower() not in (".mkv",)
@@ -1789,11 +1946,9 @@ class MainWindow(QMainWindow):
             yield 100
             yield f"Done. Output: {out_srt}"
             return
-        # Remux into MKV as new subtitle track
         if hasattr(self, "_cancel_flag") and self._cancel_flag.is_set():
             yield "Cancelled before remux."
             return
-        # Use passed mkv_path or fallback to self.mkv_path
         remux_src = mkv_path or self.mkv_path
         if not remux_src:
             yield "No MKV path provided for remux."
@@ -1807,7 +1962,6 @@ class MainWindow(QMainWindow):
             out_mkv = os.path.splitext(remux_src)[0] + ".translated.mkv"
             yield "Remuxing new MKV with translated subtitles..."
         ffmpeg_cmd = find_tool("ffmpeg")
-        # Try to reuse source subtitle title for the new translated track
         src_title = None
         if source_stream_index is not None:
             try:
@@ -1827,8 +1981,6 @@ class MainWindow(QMainWindow):
         ]
         existing_subs_count = len(kept_input_subs)
 
-        # Infer English value for the MKV lang= tag from the user's language field
-        # Check persistent cache first
         if (
             self.settings.cached_source_lang_input == target_lang
             and self.settings.cached_tag_lang
@@ -1844,7 +1996,6 @@ class MainWindow(QMainWindow):
                 tag_lang = "und"
                 yield f"[Warning] Could not normalize language for MKV tag, using '{tag_lang}'. Error: {_e}"
 
-            # Build Title with normalized language and ISO 639-2 code
             try:
                 iso3 = self._infer_iso3(target_lang)
                 yield f"ISO 639-2 code inferred: '{iso3}' (from '{target_lang}')"
@@ -1852,7 +2003,6 @@ class MainWindow(QMainWindow):
                 iso3 = "und"
                 yield f"[Warning] Could not infer ISO 639-2 code via chat. Using '{iso3}'. Error: {_e}"
 
-            # Update persistent cache
             self.settings.cached_source_lang_input = target_lang
             self.settings.cached_tag_lang = tag_lang
             self.settings.cached_iso3 = iso3
@@ -1868,11 +2018,7 @@ class MainWindow(QMainWindow):
         else:
             src_title = f"{src_title} | Translated [{iso3}] ({tag_lang})"
 
-        # Build ffmpeg command:
-        # [inputs] -> [maps] -> [codecs] -> [metadata for the NEW track] -> [output]
         if exclude_set:
-            # Whitelist mapping: copy non-subtitle streams unconditionally,
-            # then explicitly include each subtitle stream NOT in the delete set.
             cmd = [
                 ffmpeg_cmd,
                 "-y",
@@ -1935,7 +2081,6 @@ class MainWindow(QMainWindow):
                 out_mkv,
             ]
 
-        # Log the command before running
         try:
             import shlex
 
@@ -1948,14 +2093,11 @@ class MainWindow(QMainWindow):
             cmd, capture_output=True, text=True, startupinfo=make_startupinfo()
         )
         if proc.returncode != 0:
-            # Log exit code and stderr so the user can copy from the log window
             yield f"FFmpeg exit code: {proc.returncode}"
             if proc.stderr:
                 yield "FFmpeg stderr:"
-                # Split into lines to preserve formatting in the log widget
                 for line in proc.stderr.splitlines():
                     yield line
-            # Even on failure, try to remove temporary SRT files to avoid leftovers
             try:
                 if os.path.exists(out_srt):
                     os.remove(out_srt)
@@ -1965,10 +2107,8 @@ class MainWindow(QMainWindow):
                 pass
             raise RuntimeError(proc.stderr.strip() or "ffmpeg failed during remux")
 
-        # After successful remux: if overwrite requested, replace original file
         try:
             if overwrite:
-                # Ensure ffmpeg output exists
                 if os.path.exists(out_mkv):
                     try:
                         os.replace(out_mkv, mkv_path)
@@ -1981,16 +2121,13 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
-        # Cleanup temporary SRT files after successful remux
         try:
-            # Only delete temp files if they were generated from MKV extraction
             if not getattr(self, "input_is_srt", False):
                 if os.path.exists(out_srt):
                     os.remove(out_srt)
                 if os.path.exists(src_srt):
                     os.remove(src_srt)
         except Exception:
-            # Non-fatal: if we can't remove, just log it
             try:
                 yield f"[Warning] Could not remove temporary files: {out_srt} or {src_srt}"
             except Exception:
@@ -2008,16 +2145,13 @@ class MainWindow(QMainWindow):
 
         def sanitize(s: str) -> str:
             s = s.lower().strip()
-            # keep only ascii letters, digits and spaces
             allowed = "".join(
                 ch for ch in s if (ch.isalnum() and ord(ch) < 128) or ch == " "
             )
-            # collapse spaces
             parts = [p for p in allowed.split(" ") if p]
             out = " ".join(parts)
             return out[:30] if out else out
 
-        # Try API first
         try:
             res = self.translator.chat_normalize_lang(raw_lang)
             if isinstance(res, tuple):
@@ -2029,9 +2163,7 @@ class MainWindow(QMainWindow):
                 return out
         except Exception:
             pass
-        # Mapping removed by request; rely solely on chat output, then ASCII cleanup as fallback.
         rl = (raw_lang or "").strip().lower()
-        # Simple ascii-only fallback
         ascii_only = "".join(
             ch for ch in rl if (ch.isalnum() and ord(ch) < 128) or ch == " "
         )
