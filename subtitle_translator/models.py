@@ -1,6 +1,18 @@
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, field, asdict
+from typing import List, Optional
 import json
 import os
+
+
+@dataclass
+class FileDecision:
+    """Per-file user choice from TrackSelectionDialog. Not persisted."""
+
+    file_path: str
+    translate_stream_index: Optional[int] = None
+    delete_stream_indexes: List[int] = field(default_factory=list)
+    skipped: bool = False
+    cancelled: bool = False  # True if the user aborted the whole batch
 
 
 @dataclass
@@ -27,7 +39,7 @@ class AppSettings:
     # Batch processing defaults
     default_source_lang: str = "eng"
     default_source_title: str = "Full"
-    
+
     # Persistent cache for language normalization
     cached_tag_lang: str = ""
     cached_iso3: str = ""
@@ -35,7 +47,9 @@ class AppSettings:
 
     @staticmethod
     def load():
-        path = os.path.join(os.path.expanduser("~"), ".subtitle_translator_settings.json")
+        path = os.path.join(
+            os.path.expanduser("~"), ".subtitle_translator_settings.json"
+        )
         if not os.path.exists(path):
             return AppSettings()
         try:
@@ -46,7 +60,9 @@ class AppSettings:
             return AppSettings()
 
     def save(self):
-        path = os.path.join(os.path.expanduser("~"), ".subtitle_translator_settings.json")
+        path = os.path.join(
+            os.path.expanduser("~"), ".subtitle_translator_settings.json"
+        )
         try:
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(asdict(self), f, ensure_ascii=False, indent=2)
