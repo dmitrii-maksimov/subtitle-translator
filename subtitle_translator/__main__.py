@@ -1,6 +1,6 @@
 import sys
 from PySide6.QtWidgets import QApplication
-from subtitle_translator.main_window import MainWindow
+from subtitle_translator.ui.main_window import MainWindow
 
 
 def main():

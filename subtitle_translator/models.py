@@ -45,6 +45,21 @@ class AppSettings:
     cached_models: List[str] = field(default_factory=list)
     use_custom_model: bool = False
 
+    # Kodi integration
+    kodi_host: str = ""
+    kodi_port: int = 8080
+    kodi_user: str = "kodi"
+    kodi_password: str = ""
+    kodi_source_path: str = ""
+    local_parent_path: str = ""
+
+    # Live translation mode
+    live_poll_interval: int = 30
+    live_stable_threshold: int = 30
+
+    # Kodi-follow mode: translate ahead of playback by this many minutes
+    kodi_follow_buffer_min: int = 10
+
     @staticmethod
     def load():
         path = os.path.join(

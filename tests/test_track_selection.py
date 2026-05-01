@@ -5,13 +5,10 @@ pre-fill checkboxes for the next file based on the previous file's choices.
 No Qt event loop is required.
 """
 
-import pytest
-
-# match_initial_state and _stream_match_key live in main_window.py. Importing
-# that module pulls in PySide6; skip cleanly if it is not installed.
-PySide6 = pytest.importorskip("PySide6.QtWidgets")
-
-from subtitle_translator.main_window import match_initial_state, _stream_match_key
+from subtitle_translator.core.track_matcher import (
+    match_initial_state,
+    stream_match_key as _stream_match_key,
+)
 
 
 def _stream(index, lang=None, title=None, codec="subrip"):

@@ -138,19 +138,58 @@ All settings are stored in `~/.subtitle_translator_settings.json` and can be edi
 
 ## Project structure
 
+The codebase is split by concern: pure orchestration in `core/`,
+ffmpeg subprocess wrappers in `ffmpeg/`, Qt UI in `ui/` (with one file
+per dialog / tab / widget). The Qt-free modules in `core/` and
+`ffmpeg/` can be imported and tested without a display.
+
 ```
 subtitle_translator/
-    __init__.py          # Package marker
-    __main__.py          # Entry point (launches the Qt app)
-    models.py            # AppSettings and FileDecision dataclasses
-    services.py          # TranslationService: prompts + /v1/models + /v1/chat/completions
-    pricing.py           # Local snapshot of OpenAI per-token prices
-    utils.py             # ffmpeg/ffprobe discovery and installation
-    main_window.py       # GUI (PySide6): MainWindow, TrackSelectionDialog,
-                         #                model picker, pricing delegate
+    __init__.py
+    __main__.py                  # Entry point (launches the Qt app)
+    models.py                    # AppSettings, FileDecision dataclasses
+    services.py                  # TranslationService: prompts + /v1/models + /v1/chat/completions
+    pricing.py                   # Local snapshot of OpenAI per-token prices
+    utils.py                     # ffmpeg/ffprobe discovery and installation
+    kodi_client.py               # Kodi JSON-RPC client + LAN discovery + path mapping
+    main_window.py               # Compatibility shim, re-exports MainWindow
+
+    core/                        # Pure logic, no Qt
+        srt_io.py                # Sentinel + timecode helpers
+        track_matcher.py         # Stream picker, match_initial_state
+        sanitize.py              # Strip stray index/timestamp lines from model output
+        translation_engine.py    # translate_subs (parallel windowed translation)
+        live_loop.py             # live_translate_mkv: translate while file downloads
+        kodi_follow.py           # kodi_follow_translate: stay N min ahead of Kodi playback
+
+    ffmpeg/                      # Subprocess wrappers, no Qt
+        probe.py                 # ffprobe_subs / ffprobe_subs_partial
+        extract.py               # extract_srt / extract_srt_lenient
+        remux.py                 # remux_drop_streams / remux_with_translated_srt
+
+    ui/                          # Qt only
+        main_window.py           # MainWindow: tab composition + signal routing
+        workers.py               # WorkerThread, _ModelFetcherThread
+        model_picker.py          # Model dropdown (combo + Custom + Refresh)
+        widgets/
+            elided_label.py
+            model_price_delegate.py
+        dialogs/
+            track_selection.py
+            kodi_discovery.py
+            kodi_browse.py
+            live_download.py
+            kodi_follow.py
+        tabs/
+            main_tab.py
+            settings_tab.py
+            kodi_tab.py
+
 tests/
-    test_track_selection.py  # Unit tests for the carry-over matcher
-    test_pricing.py          # Pricing lookup and model-id normalization
+    test_track_selection.py      # Carry-over matcher (no Qt)
+    test_live_loop.py            # live_translate_mkv polling logic (no Qt)
+    test_kodi.py                 # map_local_to_kodi
+    test_pricing.py              # Pricing lookup and id normalization
 ```
 
 ## Running tests
