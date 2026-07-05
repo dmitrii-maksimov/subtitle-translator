@@ -77,6 +77,9 @@ def build_settings_tab(window, parent):
     btn_check_updates = QPushButton("Check for updates now")
     btn_check_updates.clicked.connect(lambda: window._start_update_check(force=True))
 
+    window.show_kodi_checkbox = QCheckBox("Show Kodi integration")
+    window.show_kodi_checkbox.setChecked(bool(getattr(s, "show_kodi", False)))
+
     window.main_prompt_text = QTextEdit()
     window.main_prompt_text.setMinimumHeight(60)
     window.main_prompt_text.setPlainText(s.main_prompt_template)
@@ -110,6 +113,7 @@ def build_settings_tab(window, parent):
     form.addRow("Extra prompt:", window.extra_prompt_input)
     form.addRow("Updates:", window.auto_update_checkbox)
     form.addRow("", btn_check_updates)
+    form.addRow("Kodi:", window.show_kodi_checkbox)
     settings_layout_v.addLayout(form)
     settings_layout_v.addWidget(
         QLabel(
@@ -137,3 +141,4 @@ def build_settings_tab(window, parent):
     window.system_role_text.textChanged.connect(window._on_settings_changed)
     window.fulllog_checkbox.toggled.connect(window._on_settings_changed)
     window.auto_update_checkbox.toggled.connect(window._on_settings_changed)
+    window.show_kodi_checkbox.toggled.connect(window._on_settings_changed)

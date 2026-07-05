@@ -65,6 +65,11 @@ class AppSettings:
     last_update_check: float = 0.0
     skip_version: str = ""
 
+    # Kodi integration is hidden behind a toggle. Fresh installs default to
+    # hidden; users upgrading from a pre-1.4.2 build (settings file exists but
+    # lacks this key) keep it visible — see AppSettings.load().
+    show_kodi: bool = False
+
     @staticmethod
     def load():
         path = os.path.join(
@@ -75,6 +80,11 @@ class AppSettings:
         try:
             with open(path, "r", encoding="utf-8") as f:
                 data = json.load(f)
+            # A settings file that predates the Kodi toggle means an existing
+            # user upgrading — keep Kodi visible for them (fresh installs have
+            # no file and fall back to the default False above).
+            if "show_kodi" not in data:
+                data["show_kodi"] = True
             # Ignore unknown keys so older/newer configs don't crash the app.
             valid = {k for k in AppSettings.__dataclass_fields__}
             data = {k: v for k, v in data.items() if k in valid}

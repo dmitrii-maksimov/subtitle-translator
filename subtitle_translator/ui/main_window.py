@@ -355,6 +355,7 @@ class MainWindow(QMainWindow):
         kodi_scroll.setFrameShape(QFrame.NoFrame)
         kodi_tab = QWidget()
         kodi_scroll.setWidget(kodi_tab)
+        self.kodi_scroll = kodi_scroll
 
         self.tabs.addTab(main_scroll, "Main")
         self.tabs.addTab(settings_scroll, "Settings")
@@ -365,10 +366,25 @@ class MainWindow(QMainWindow):
         build_settings_tab(self, settings_tab)
         build_main_tab(self, main_tab)
 
+        self._apply_kodi_visibility()
+
         self.resize(1100, 700)
         # Allow the user to shrink the window small — Qt's implicit minimum
         # size comes from the sum of child sizeHints, which was ~700 px tall.
         self.setMinimumSize(500, 300)
+
+    def _apply_kodi_visibility(self):
+        """Show/hide every Kodi entry point based on the show_kodi setting:
+        the Kodi tab plus the Main-tab "Following Kodi" and "File downloading
+        (live)" buttons."""
+        show = bool(getattr(self.settings, "show_kodi", False))
+        idx = self.tabs.indexOf(self.kodi_scroll)
+        if idx != -1:
+            self.tabs.setTabVisible(idx, show)
+        for attr in ("btn_live", "btn_kodi_follow"):
+            w = getattr(self, attr, None)
+            if w is not None:
+                w.setVisible(show)
 
     def closeEvent(self, event):
         if hasattr(self, "worker") and self.worker.isRunning():
@@ -460,7 +476,12 @@ class MainWindow(QMainWindow):
             )
         except Exception:
             pass
+        try:
+            self.settings.show_kodi = bool(self.show_kodi_checkbox.isChecked())
+        except Exception:
+            pass
         self.settings.save()
+        self._apply_kodi_visibility()
 
     def _on_kodi_settings_changed(self):
         """Push Kodi tab inputs into AppSettings and persist."""
