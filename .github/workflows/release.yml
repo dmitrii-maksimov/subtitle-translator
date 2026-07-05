@@ -55,18 +55,34 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: pip install -r requirements.txt pyinstaller
+        run: pip install -r requirements.txt pyinstaller pillow
 
-      - name: Build exe
+      - name: Generate ICO icon
         run: |
-          pyinstaller --noconfirm --onefile --noconsole `
-            --name SubtitleTranslator-windows `
+          python -c "from make_icon import draw_icon; draw_icon(256).save('icon.ico', sizes=[(256,256),(128,128),(64,64),(48,48),(32,32),(16,16)])"
+
+      - name: Build app (onedir)
+        run: |
+          pyinstaller --noconfirm --onedir --noconsole `
+            --name SubtitleTranslator `
+            --icon icon.ico `
             subtitle_translator\__main__.py
+
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+
+      - name: Build installer
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart('v')
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" `
+            "/DMyAppVersion=$version" `
+            "/DRepoRoot=$(Get-Location)\" `
+            packaging\windows\installer.iss
 
       - uses: actions/upload-artifact@v5
         with:
-          name: windows-exe
-          path: dist/SubtitleTranslator-windows.exe
+          name: windows-installer
+          path: installer_output/SubtitleTranslator-Setup.exe
 
   build-linux:
     runs-on: ubuntu-latest
@@ -122,7 +138,7 @@ jobs:
 
       - uses: actions/download-artifact@v5
         with:
-          name: windows-exe
+          name: windows-installer
           path: artifacts
 
       - uses: actions/download-artifact@v5
@@ -135,7 +151,7 @@ jobs:
         with:
           files: |
             artifacts/SubtitleTranslator-macOS.dmg
-            artifacts/SubtitleTranslator-windows.exe
+            artifacts/SubtitleTranslator-Setup.exe
             artifacts/SubtitleTranslator-linux.AppImage
           body: |
             ## SubtitleTranslator ${{ github.ref_name }}
@@ -147,7 +163,7 @@ jobs:
             | Platform | File |
             |----------|------|
             | macOS | `SubtitleTranslator-macOS.dmg` |
-            | Windows | `SubtitleTranslator-windows.exe` |
+            | Windows | `SubtitleTranslator-Setup.exe` (installer) |
             | Linux | `SubtitleTranslator-linux.AppImage` |
 
             ## Requirements
