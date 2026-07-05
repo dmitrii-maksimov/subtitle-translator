@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+from ... import __version__
 from ..model_picker import build_model_picker
 
 
@@ -111,6 +112,7 @@ def build_settings_tab(window, parent):
     form.addRow("Overlap:", window.overlap_input)
     form.addRow("Full log:", window.fulllog_checkbox)
     form.addRow("Extra prompt:", window.extra_prompt_input)
+    form.addRow("Version:", QLabel(__version__))
     form.addRow("Updates:", window.auto_update_checkbox)
     form.addRow("", btn_check_updates)
     form.addRow("Kodi:", window.show_kodi_checkbox)

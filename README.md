@@ -93,7 +93,7 @@ Or: right-click the app in Applications → **Open** → **Open**.
 
 ## Updates
 
-The app checks GitHub Releases for a newer version on startup (at most once a day) and offers to download and install it in one click. You can toggle **"Automatically check for updates on startup"** or trigger a check manually via **Check for updates now** in the **Settings** tab.
+The app checks GitHub Releases for a newer version on startup and offers to download and install it in one click. You can toggle **"Automatically check for updates on startup"** or trigger a check manually via **Check for updates now** in the **Settings** tab. The current version is shown in the window title and on the Settings tab.
 
 ## Installing ffmpeg
 
@@ -158,9 +158,9 @@ All settings are stored in `~/.subtitle_translator_settings.json` and can be edi
    consistent translations across chunk boundaries.
 4. **Re-mux** — The translated SRT is muxed back into the MKV as a new
    track; tracks marked for deletion are excluded via explicit
-   `-map` whitelisting. By default the original file is preserved and
-   a new `.translated.mkv` is created (toggle **Overwrite the original
-   file** to replace it in place).
+   `-map` whitelisting. By default the original file is replaced in place;
+   untick **Overwrite the original file** to instead keep it and create a
+   new `.translated.mkv`.
 
 ## Project structure
 

@@ -84,7 +84,7 @@ from .workers import WorkerThread, _ModelFetcherThread
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Subtitle Translator")
+        self.setWindowTitle(f"Subtitle Translator v{updater.current_version()}")
         self.settings = AppSettings.load()
         self.translator = TranslationService(self.settings)
         if getattr(self.settings, "overlap", None) is None:
@@ -191,16 +191,12 @@ class MainWindow(QMainWindow):
     def _start_update_check(self, force: bool = False):
         """Check for a newer release in the background.
 
-        Silent on startup (respects the auto_check_updates setting and a
-        ~24h throttle); ``force=True`` (the "Check now" button) always runs
-        and reports the "you're up to date" case too.
+        Runs on every startup (respecting the auto_check_updates setting);
+        ``force=True`` (the "Check now" button) also reports the "you're up to
+        date" case.
         """
-        if not force:
-            if not getattr(self.settings, "auto_check_updates", True):
-                return
-            last = getattr(self.settings, "last_update_check", 0.0) or 0.0
-            if time.time() - last < 24 * 3600:
-                return
+        if not force and not getattr(self.settings, "auto_check_updates", True):
+            return
 
         self.settings.last_update_check = time.time()
         self.settings.save()
