@@ -38,6 +38,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QTabWidget,
+    QTextBrowser,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -229,27 +230,62 @@ class MainWindow(QMainWindow):
         if not force and info.version == getattr(self.settings, "skip_version", ""):
             return
 
-        box = QMessageBox(self)
-        box.setWindowTitle("Update Available")
-        box.setIcon(QMessageBox.Information)
-        box.setText(
-            f"A new version is available: v{info.version}\n"
-            f"(you have v{updater.current_version()})"
-        )
-        notes = (info.notes or "").strip()
-        if notes:
-            box.setDetailedText(notes)
-        download_btn = box.addButton("Download && Install", QMessageBox.AcceptRole)
-        skip_btn = box.addButton("Skip This Version", QMessageBox.DestructiveRole)
-        box.addButton("Later", QMessageBox.RejectRole)
-        box.exec()
-
-        clicked = box.clickedButton()
-        if clicked is download_btn:
+        choice = self._prompt_update(info)
+        if choice == "download":
             self.download_and_apply_update(info)
-        elif clicked is skip_btn:
+        elif choice == "skip":
             self.settings.skip_version = info.version
             self.settings.save()
+
+    def _prompt_update(self, info) -> str:
+        """Show the 'What's new' dialog. Returns 'download', 'skip' or 'later'.
+
+        The release notes are rendered as Markdown (headings/bullets) rather
+        than shown as raw text, and only the changelog is displayed — the
+        download table / requirements footer is stripped upstream (see
+        updater.IN_APP_NOTES_MARKER)."""
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Update Available")
+        layout = QVBoxLayout(dlg)
+
+        header = QLabel(
+            f"<b>A new version is available: v{info.version}</b>"
+            f"<br><span style='color:#888'>"
+            f"you have v{updater.current_version()}</span>"
+        )
+        header.setTextFormat(Qt.RichText)
+        layout.addWidget(header)
+
+        notes = (info.notes or "").strip()
+        if notes:
+            view = QTextBrowser()
+            view.setOpenExternalLinks(True)
+            view.setMarkdown(notes)
+            view.setMinimumSize(460, 220)
+            layout.addWidget(view, 1)
+
+        row = QHBoxLayout()
+        row.addStretch(1)
+        later_btn = QPushButton("Later")
+        skip_btn = QPushButton("Skip This Version")
+        download_btn = QPushButton("Download && Install")
+        download_btn.setDefault(True)
+        row.addWidget(later_btn)
+        row.addWidget(skip_btn)
+        row.addWidget(download_btn)
+        layout.addLayout(row)
+
+        result = {"choice": "later"}
+        later_btn.clicked.connect(dlg.reject)
+        skip_btn.clicked.connect(
+            lambda: (result.update(choice="skip"), dlg.reject())
+        )
+        download_btn.clicked.connect(
+            lambda: (result.update(choice="download"), dlg.accept())
+        )
+        dlg.resize(560, 420)
+        dlg.exec()
+        return result["choice"]
 
     def download_and_apply_update(self, info):
         if not info.asset_url:

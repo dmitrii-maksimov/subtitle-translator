@@ -98,6 +98,29 @@ def test_check_returns_info_for_newer(monkeypatch):
     assert info.notes == "release notes here"
 
 
+def test_check_strips_release_page_footer_from_notes(monkeypatch):
+    monkeypatch.setattr(updater.sys, "platform", "win32")
+    monkeypatch.setattr(updater.os, "name", "nt")
+    monkeypatch.setattr(updater, "current_version", lambda: "1.4.0")
+
+    body = (
+        "### Fixed\n- something\n\n"
+        f"{updater.IN_APP_NOTES_MARKER}\n\n"
+        "## Downloads\n| Platform | File |\n"
+    )
+    payload = _release("v1.5.0", [
+        {"name": updater._ASSET_WINDOWS, "browser_download_url": "u", "size": 1},
+    ])
+    payload["body"] = body
+    monkeypatch.setattr(updater.requests, "get",
+                        lambda *a, **k: _FakeResp(200, payload))
+
+    info = updater.check_for_update()
+    assert info is not None
+    assert info.notes == "### Fixed\n- something"
+    assert "Downloads" not in info.notes
+
+
 def test_check_returns_none_when_not_newer(monkeypatch):
     monkeypatch.setattr(updater, "current_version", lambda: "1.4.0")
     payload = _release("v1.4.0", [

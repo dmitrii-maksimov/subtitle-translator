@@ -22,6 +22,11 @@ import requests
 from . import __version__
 
 GITHUB_REPO = "dmitrii-maksimov/subtitle-translator"
+
+# Everything after this marker in a release body is for the GitHub release page
+# only (download table, requirements, install notes) and is stripped from the
+# in-app "What's new" dialog. It's an HTML comment, so it's invisible on GitHub.
+IN_APP_NOTES_MARKER = "<!-- release-page-only -->"
 _LATEST_RELEASE_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 RELEASES_PAGE_URL = f"https://github.com/{GITHUB_REPO}/releases/latest"
 
@@ -105,9 +110,11 @@ def check_for_update(timeout: int = 10) -> Optional[UpdateInfo]:
     if not asset:
         return None
 
+    notes = (data.get("body") or "").split(IN_APP_NOTES_MARKER, 1)[0].strip()
+
     return UpdateInfo(
         version=tag,
-        notes=data.get("body") or "",
+        notes=notes,
         html_url=data.get("html_url") or RELEASES_PAGE_URL,
         asset_name=asset.get("name", wanted),
         asset_url=asset.get("browser_download_url", ""),

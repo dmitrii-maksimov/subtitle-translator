@@ -6,6 +6,15 @@ are generated from this file (see `scripts/extract_changelog.py`).
 
 Format: one `## <version>` header per release, newest first.
 
+## 1.4.6
+
+### Changed
+- The "Update available" dialog is cleaner: release notes are rendered as
+  formatted text (headings and bullets) instead of raw Markdown, and it now
+  shows only the changelog — the download table, requirements and install
+  notes (which belong on the GitHub release page) are no longer dumped into
+  the in-app dialog.
+
 ## 1.4.5
 
 ### Fixed
