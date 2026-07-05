@@ -117,9 +117,17 @@ class LiveDownloadDialog(QDialog):
         self._stop_btn.clicked.connect(self._on_stop)
         self._close_btn.clicked.connect(self.reject)
 
+        # Kodi integration is opt-in via the Settings toggle. When off, hide
+        # all Kodi controls — live translation still works standalone.
+        self._kodi_enabled = bool(getattr(self._settings, "show_kodi", False))
+        if not self._kodi_enabled:
+            self._kodi_play_btn.setVisible(False)
+            self._kodi_pause_btn.setVisible(False)
+            self._kodi_progress_label.setVisible(False)
+
         self._refresh_kodi_button_state()
 
-        if self._settings.kodi_host:
+        if self._kodi_enabled and self._settings.kodi_host:
             try:
                 client = KodiClient(
                     host=self._settings.kodi_host,
@@ -196,6 +204,8 @@ class LiveDownloadDialog(QDialog):
         self._kodi_play_btn.setToolTip("" if ok else why)
 
     def _can_play_in_kodi(self):
+        if not getattr(self, "_kodi_enabled", False):
+            return False, "Kodi integration is off (enable it in Settings)."
         if not self._settings.kodi_host:
             return False, "Kodi is not configured (Kodi tab)."
         if not self._settings.local_parent_path:
@@ -303,7 +313,7 @@ class LiveDownloadDialog(QDialog):
 
         target_lang = self._settings.target_language or "ru"
         kodi_client = None
-        if self._settings.kodi_host:
+        if self._kodi_enabled and self._settings.kodi_host:
             kodi_client = KodiClient(
                 host=self._settings.kodi_host,
                 port=self._settings.kodi_port,

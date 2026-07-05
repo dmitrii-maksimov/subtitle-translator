@@ -67,7 +67,7 @@ def build_main_tab(window, parent):
     window.btn_translate.setEnabled(False)
     window.btn_translate.setVisible(False)
     window.overwrite_checkbox = QCheckBox("Overwrite the original file")
-    window.overwrite_checkbox.setChecked(bool(getattr(s, "overwrite_original", False)))
+    window.overwrite_checkbox.setChecked(bool(getattr(s, "overwrite_original", True)))
     window.overwrite_checkbox.toggled.connect(window._on_settings_changed)
     window.btn_cancel = QPushButton("Cancel")
     window.btn_cancel.setEnabled(False)

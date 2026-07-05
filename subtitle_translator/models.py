@@ -29,7 +29,7 @@ class AppSettings:
     last_dir: str = ""
     fulllog: bool = False
     extra_prompt: str = ""
-    overwrite_original: bool = False
+    overwrite_original: bool = True
     main_prompt_template: str = ""
     system_role: str = ""
 

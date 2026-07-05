@@ -374,17 +374,18 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(500, 300)
 
     def _apply_kodi_visibility(self):
-        """Show/hide every Kodi entry point based on the show_kodi setting:
-        the Kodi tab plus the Main-tab "Following Kodi" and "File downloading
-        (live)" buttons."""
+        """Show/hide the purely-Kodi entry points based on the show_kodi
+        setting: the Kodi tab and the Main-tab "Following Kodi" button.
+
+        The "File downloading (live)" button stays available regardless — it
+        is a standalone feature; its Kodi integration is disabled inside the
+        dialog when show_kodi is off (see LiveDownloadDialog)."""
         show = bool(getattr(self.settings, "show_kodi", False))
         idx = self.tabs.indexOf(self.kodi_scroll)
         if idx != -1:
             self.tabs.setTabVisible(idx, show)
-        for attr in ("btn_live", "btn_kodi_follow"):
-            w = getattr(self, attr, None)
-            if w is not None:
-                w.setVisible(show)
+        if getattr(self, "btn_kodi_follow", None) is not None:
+            self.btn_kodi_follow.setVisible(show)
 
     def closeEvent(self, event):
         if hasattr(self, "worker") and self.worker.isRunning():
