@@ -19,6 +19,9 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt pyinstaller pillow
 
+      - name: Set version from tag
+        run: python scripts/set_version.py ${{ github.ref_name }}
+
       - name: Generate icon
         run: python make_icon.py
 
@@ -56,6 +59,9 @@ jobs:
 
       - name: Install dependencies
         run: pip install -r requirements.txt pyinstaller pillow
+
+      - name: Set version from tag
+        run: python scripts/set_version.py ${{ github.ref_name }}
 
       - name: Generate ICO icon
         run: |
@@ -99,6 +105,9 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt pyinstaller pillow
 
+      - name: Set version from tag
+        run: python scripts/set_version.py ${{ github.ref_name }}
+
       - name: Generate PNG icon
         run: |
           python3 -c "from make_icon import draw_icon; draw_icon(256).save('icon.png')"
@@ -120,10 +129,24 @@ jobs:
           chmod +x appimagetool-x86_64.AppImage
           ARCH=x86_64 APPIMAGE_EXTRACT_AND_RUN=1 ./appimagetool-x86_64.AppImage AppDir dist/SubtitleTranslator-linux.AppImage
 
+      - name: Build .deb package
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          bash packaging/linux/build_deb.sh \
+            "$version" \
+            dist/SubtitleTranslator \
+            icon.png \
+            dist/SubtitleTranslator-linux.deb
+
       - uses: actions/upload-artifact@v5
         with:
           name: linux-appimage
           path: dist/SubtitleTranslator-linux.AppImage
+
+      - uses: actions/upload-artifact@v5
+        with:
+          name: linux-deb
+          path: dist/SubtitleTranslator-linux.deb
 
   release:
     needs: [build-macos, build-windows, build-linux]
@@ -146,6 +169,11 @@ jobs:
           name: linux-appimage
           path: artifacts
 
+      - uses: actions/download-artifact@v5
+        with:
+          name: linux-deb
+          path: artifacts
+
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
@@ -153,6 +181,7 @@ jobs:
             artifacts/SubtitleTranslator-macOS.dmg
             artifacts/SubtitleTranslator-Setup.exe
             artifacts/SubtitleTranslator-linux.AppImage
+            artifacts/SubtitleTranslator-linux.deb
           body: |
             ## SubtitleTranslator ${{ github.ref_name }}
 
@@ -164,7 +193,8 @@ jobs:
             |----------|------|
             | macOS | `SubtitleTranslator-macOS.dmg` |
             | Windows | `SubtitleTranslator-Setup.exe` (installer) |
-            | Linux | `SubtitleTranslator-linux.AppImage` |
+            | Linux | `SubtitleTranslator-linux.AppImage` (portable) |
+            | Linux (Debian/Ubuntu) | `SubtitleTranslator-linux.deb` |
 
             ## Requirements
 

@@ -57,6 +57,17 @@ pip install -r requirements.txt
 python -m subtitle_translator
 ```
 
+## Downloads
+
+Grab the latest build for your platform from the [Releases](https://github.com/dmitrii-maksimov/subtitle-translator/releases) page:
+
+| Platform | File |
+|----------|------|
+| macOS | `SubtitleTranslator-macOS.dmg` |
+| Windows | `SubtitleTranslator-Setup.exe` (installer) |
+| Linux | `SubtitleTranslator-linux.AppImage` (portable) |
+| Linux (Debian/Ubuntu) | `SubtitleTranslator-linux.deb` |
+
 ## Installing on macOS
 
 1. Download the latest `SubtitleTranslator-macOS.dmg` from the [Releases](https://github.com/dmitrii-maksimov/subtitle-translator/releases) page.
@@ -68,6 +79,21 @@ xattr -cr /Applications/SubtitleTranslator.app
 ```
 
 Or: right-click the app in Applications → **Open** → **Open**.
+
+## Installing on Windows
+
+1. Download `SubtitleTranslator-Setup.exe` from the [Releases](https://github.com/dmitrii-maksimov/subtitle-translator/releases) page and run it.
+2. The installer is not code-signed, so Windows **SmartScreen** may show _"Windows protected your PC"_. Click **More info → Run anyway** to continue.
+3. Follow the wizard (Start-menu shortcut and an optional desktop icon are created; an uninstaller is registered under _Add or remove programs_).
+
+## Installing on Linux
+
+- **AppImage** (any distro): `chmod +x SubtitleTranslator-linux.AppImage && ./SubtitleTranslator-linux.AppImage`
+- **Debian/Ubuntu**: `sudo apt install ./SubtitleTranslator-linux.deb` (pulls in `ffmpeg` automatically).
+
+## Updates
+
+The app checks GitHub Releases for a newer version on startup (at most once a day) and offers to download and install it in one click. You can toggle **"Automatically check for updates on startup"** or trigger a check manually via **Check for updates now** in the **Settings** tab.
 
 ## Installing ffmpeg
 

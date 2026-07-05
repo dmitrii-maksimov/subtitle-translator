@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=SubtitleTranslator
+Comment=Extract, translate and re-mux subtitles in MKV files
+Exec=subtitle-translator
+Icon=subtitle-translator
+Terminal=false
+Type=Application
+Categories=AudioVideo;Video;Utility;

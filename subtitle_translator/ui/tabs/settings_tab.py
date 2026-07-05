@@ -72,6 +72,11 @@ def build_settings_tab(window, parent):
         "Optional extra instruction for translation (will be enforced)"
     )
 
+    window.auto_update_checkbox = QCheckBox("Automatically check for updates on startup")
+    window.auto_update_checkbox.setChecked(bool(getattr(s, "auto_check_updates", True)))
+    btn_check_updates = QPushButton("Check for updates now")
+    btn_check_updates.clicked.connect(lambda: window._start_update_check(force=True))
+
     window.main_prompt_text = QTextEdit()
     window.main_prompt_text.setMinimumHeight(60)
     window.main_prompt_text.setPlainText(s.main_prompt_template)
@@ -103,6 +108,8 @@ def build_settings_tab(window, parent):
     form.addRow("Overlap:", window.overlap_input)
     form.addRow("Full log:", window.fulllog_checkbox)
     form.addRow("Extra prompt:", window.extra_prompt_input)
+    form.addRow("Updates:", window.auto_update_checkbox)
+    form.addRow("", btn_check_updates)
     settings_layout_v.addLayout(form)
     settings_layout_v.addWidget(
         QLabel(
@@ -129,3 +136,4 @@ def build_settings_tab(window, parent):
     window.main_prompt_text.textChanged.connect(window._on_settings_changed)
     window.system_role_text.textChanged.connect(window._on_settings_changed)
     window.fulllog_checkbox.toggled.connect(window._on_settings_changed)
+    window.auto_update_checkbox.toggled.connect(window._on_settings_changed)

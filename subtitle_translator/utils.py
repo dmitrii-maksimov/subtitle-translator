@@ -112,6 +112,40 @@ def ensure_ffmpeg_or_raise():
         raise RuntimeError("ffmpeg/ffprobe not found. Please install ffmpeg.")
 
 
+def download_file(url, dest, progress_callback=None, cancel_event=None, scale=100):
+    """
+    Stream *url* to *dest* with progress reporting and cancellation.
+
+    progress_callback: function(int) -> None, receives percentage 0-*scale*.
+    cancel_event: threading.Event; when set, raises InterruptedError.
+    scale: upper bound of the reported percentage (100 by default). Callers
+        that download then post-process can pass a smaller scale (e.g. 50)
+        to reserve headroom for the remaining work.
+    """
+    with requests.get(url, stream=True) as r:
+        r.raise_for_status()
+        total_length = r.headers.get("content-length")
+
+        if total_length is None:
+            with open(dest, "wb") as f:
+                f.write(r.content)
+            if progress_callback:
+                progress_callback(scale)
+            return
+
+        dl = 0
+        total_length = int(total_length)
+        with open(dest, "wb") as f:
+            for chunk in r.iter_content(chunk_size=8192):
+                if cancel_event and cancel_event.is_set():
+                    raise InterruptedError("Download cancelled")
+                if chunk:
+                    dl += len(chunk)
+                    f.write(chunk)
+                    if progress_callback:
+                        progress_callback(int(scale * dl / total_length))
+
+
 def install_ffmpeg(progress_callback=None, cancel_event=None):
     """
     Downloads and installs FFmpeg to the application directory.
@@ -139,27 +173,13 @@ def install_ffmpeg(progress_callback=None, cancel_event=None):
     zip_path = os.path.join(base_dir, "ffmpeg.zip")
 
     try:
-        with requests.get(url, stream=True) as r:
-            r.raise_for_status()
-            total_length = r.headers.get("content-length")
-
-            if total_length is None:
-                with open(zip_path, "wb") as f:
-                    f.write(r.content)
-                if progress_callback:
-                    progress_callback(50)
-            else:
-                dl = 0
-                total_length = int(total_length)
-                with open(zip_path, "wb") as f:
-                    for chunk in r.iter_content(chunk_size=8192):
-                        if cancel_event and cancel_event.is_set():
-                            raise InterruptedError("Download cancelled")
-                        if chunk:
-                            dl += len(chunk)
-                            f.write(chunk)
-                            if progress_callback:
-                                progress_callback(int(50 * dl / total_length))
+        # Download is the first half of the work; extraction is the rest.
+        download_file(
+            url, zip_path,
+            progress_callback=progress_callback,
+            cancel_event=cancel_event,
+            scale=50,
+        )
 
         if progress_callback:
             progress_callback(60)

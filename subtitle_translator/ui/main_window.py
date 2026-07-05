@@ -19,6 +19,7 @@ import srt
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QPalette
 from PySide6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QComboBox,
     QDialog,
@@ -53,8 +54,10 @@ from ..models import AppSettings
 from ..services import TranslationService
 from ..utils import (
     check_ffmpeg_available,
+    download_file,
     install_ffmpeg,
 )
+from .. import updater
 from .tabs.kodi_tab import build_kodi_tab
 from .tabs.main_tab import build_main_tab
 from .tabs.settings_tab import build_settings_tab
@@ -112,6 +115,7 @@ class MainWindow(QMainWindow):
 
         self._build_ui()
         self.check_and_offer_install_ffmpeg()
+        self._start_update_check()
 
     def check_and_offer_install_ffmpeg(self):
         if check_ffmpeg_available():
@@ -181,6 +185,148 @@ class MainWindow(QMainWindow):
 
         self._install_worker.finished_sig.connect(on_finished)
         self._install_worker.start()
+
+    # ---- Auto-update (GitHub Releases) --------------------------------
+
+    def _start_update_check(self, force: bool = False):
+        """Check for a newer release in the background.
+
+        Silent on startup (respects the auto_check_updates setting and a
+        ~24h throttle); ``force=True`` (the "Check now" button) always runs
+        and reports the "you're up to date" case too.
+        """
+        if not force:
+            if not getattr(self.settings, "auto_check_updates", True):
+                return
+            last = getattr(self.settings, "last_update_check", 0.0) or 0.0
+            if time.time() - last < 24 * 3600:
+                return
+
+        self.settings.last_update_check = time.time()
+        self.settings.save()
+
+        class UpdateCheckWorker(QThread):
+            done_sig = Signal(object)  # UpdateInfo | None
+
+            def run(self):
+                self.done_sig.emit(updater.check_for_update())
+
+        self._update_check_worker = UpdateCheckWorker()
+        self._update_check_worker.done_sig.connect(
+            lambda info: self._on_update_check_done(info, force)
+        )
+        self._update_check_worker.start()
+
+    def _on_update_check_done(self, info, force: bool):
+        if info is None:
+            if force:
+                QMessageBox.information(
+                    self,
+                    "No Updates",
+                    f"You're running the latest version "
+                    f"(v{updater.current_version()}).",
+                )
+            return
+
+        if not force and info.version == getattr(self.settings, "skip_version", ""):
+            return
+
+        box = QMessageBox(self)
+        box.setWindowTitle("Update Available")
+        box.setIcon(QMessageBox.Information)
+        box.setText(
+            f"A new version is available: v{info.version}\n"
+            f"(you have v{updater.current_version()})"
+        )
+        notes = (info.notes or "").strip()
+        if notes:
+            box.setDetailedText(notes)
+        download_btn = box.addButton("Download && Install", QMessageBox.AcceptRole)
+        skip_btn = box.addButton("Skip This Version", QMessageBox.DestructiveRole)
+        box.addButton("Later", QMessageBox.RejectRole)
+        box.exec()
+
+        clicked = box.clickedButton()
+        if clicked is download_btn:
+            self.download_and_apply_update(info)
+        elif clicked is skip_btn:
+            self.settings.skip_version = info.version
+            self.settings.save()
+
+    def download_and_apply_update(self, info):
+        if not info.asset_url:
+            QMessageBox.warning(
+                self,
+                "Update",
+                "No downloadable installer was found for this platform.\n"
+                f"Please download it from:\n{info.html_url}",
+            )
+            return
+
+        import tempfile
+
+        dest = os.path.join(tempfile.gettempdir(), info.asset_name)
+
+        progress = QProgressDialog(
+            f"Downloading v{info.version}...", "Cancel", 0, 100, self
+        )
+        progress.setWindowModality(Qt.WindowModal)
+        progress.setAutoClose(False)
+        progress.setAutoReset(False)
+        progress.show()
+
+        cancel_event = threading.Event()
+        progress.canceled.connect(cancel_event.set)
+
+        url = info.asset_url
+
+        class DownloadWorker(QThread):
+            progress_sig = Signal(int)
+            finished_sig = Signal(bool, str)
+
+            def run(self):
+                try:
+                    download_file(
+                        url, dest,
+                        progress_callback=lambda p: self.progress_sig.emit(p),
+                        cancel_event=cancel_event,
+                    )
+                    self.finished_sig.emit(True, "")
+                except InterruptedError:
+                    self.finished_sig.emit(False, "Cancelled by user")
+                except Exception as e:  # noqa: BLE001
+                    self.finished_sig.emit(False, str(e))
+
+        self._update_dl_worker = DownloadWorker()
+        self._update_dl_worker.progress_sig.connect(progress.setValue)
+
+        def on_finished(success, msg):
+            progress.close()
+            if not success:
+                if msg != "Cancelled by user":
+                    QMessageBox.critical(
+                        self, "Update Failed", f"Could not download the update:\n{msg}"
+                    )
+                return
+            QMessageBox.information(
+                self,
+                "Update",
+                "Download complete. The application will now close to install "
+                "the update.",
+            )
+            try:
+                updater.apply_update(dest)
+            except Exception as e:  # noqa: BLE001
+                QMessageBox.critical(
+                    self, "Update Failed", f"Could not start the installer:\n{e}"
+                )
+                return
+            # apply_update either launched the installer (we quit) or, for
+            # AppImage, re-exec'd and never returned.
+            QApplication.quit()
+
+        self._update_dl_worker.finished_sig.connect(on_finished)
+        self._update_dl_worker.start()
 
     def _sanitize_content(self, text: str) -> str:
         return sanitize_content(text)
@@ -308,6 +454,12 @@ class MainWindow(QMainWindow):
             self.settings.overwrite_original = bool(self.overwrite_checkbox.isChecked())
         except Exception:
             self.settings.overwrite_original = False
+        try:
+            self.settings.auto_check_updates = bool(
+                self.auto_update_checkbox.isChecked()
+            )
+        except Exception:
+            pass
         self.settings.save()
 
     def _on_kodi_settings_changed(self):

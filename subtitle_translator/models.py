@@ -60,6 +60,11 @@ class AppSettings:
     # Kodi-follow mode: translate ahead of playback by this many minutes
     kodi_follow_buffer_min: int = 10
 
+    # Auto-update (GitHub Releases)
+    auto_check_updates: bool = True
+    last_update_check: float = 0.0
+    skip_version: str = ""
+
     @staticmethod
     def load():
         path = os.path.join(

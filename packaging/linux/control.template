@@ -1,0 +1,11 @@
+Package: subtitle-translator
+Version: __VERSION__
+Section: video
+Priority: optional
+Architecture: amd64
+Depends: ffmpeg
+Maintainer: Dmitrii Maksimov <9381904@gmail.com>
+Homepage: https://github.com/dmitrii-maksimov/subtitle-translator
+Description: Subtitle Translator
+ Desktop app for extracting, translating, and re-muxing subtitles in MKV
+ files using any OpenAI-compatible API.
