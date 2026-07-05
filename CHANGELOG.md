@@ -6,6 +6,13 @@ are generated from this file (see `scripts/extract_changelog.py`).
 
 Format: one `## <version>` header per release, newest first.
 
+## 1.4.5
+
+### Fixed
+- The app now shows its icon in the window title bar and taskbar on all
+  platforms (Windows, macOS, Linux). Previously the running window used the
+  generic default icon because no window icon was set at runtime.
+
 ## 1.4.4
 
 ### Fixed

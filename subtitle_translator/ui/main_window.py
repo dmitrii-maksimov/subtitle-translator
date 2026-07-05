@@ -58,6 +58,7 @@ from ..utils import (
     install_ffmpeg,
 )
 from .. import updater
+from .appicon import app_icon
 from .tabs.kodi_tab import build_kodi_tab
 from .tabs.main_tab import build_main_tab
 from .tabs.settings_tab import build_settings_tab
@@ -85,6 +86,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle(f"Subtitle Translator v{updater.current_version()}")
+        self.setWindowIcon(app_icon())
         self.settings = AppSettings.load()
         self.translator = TranslationService(self.settings)
         if getattr(self.settings, "overlap", None) is None:
